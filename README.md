@@ -79,6 +79,7 @@ pnpm summarize -- "https://example.com" --json
 - `--prompt`: print prompt and exit (never calls OpenAI)
 - `--extract-only`: print extracted content and exit (never calls OpenAI)
 - `--json`: emit a single JSON object instead of plain text
+- `--verbose`: print detailed progress + extraction diagnostics to stderr
 
 ## Required services & API keys
 

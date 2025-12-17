@@ -73,6 +73,7 @@ function buildProgram() {
     .option('--prompt', 'Print the prompt and exit', false)
     .option('--extract-only', 'Print extracted content and exit', false)
     .option('--json', 'Output structured JSON', false)
+    .option('--verbose', 'Print detailed progress info to stderr', false)
     .allowExcessArguments(false)
 }
 
@@ -243,6 +244,29 @@ function splitTextIntoChunks(input: string, maxCharacters: number): string[] {
   return chunks.filter((chunk) => chunk.length > 0)
 }
 
+const VERBOSE_PREFIX = '[summarize]'
+
+function writeVerbose(stderr: NodeJS.WritableStream, verbose: boolean, message: string): void {
+  if (!verbose) {
+    return
+  }
+  stderr.write(`${VERBOSE_PREFIX} ${message}\n`)
+}
+
+function formatOptionalString(value: string | null | undefined): string {
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value.trim()
+  }
+  return 'none'
+}
+
+function formatOptionalNumber(value: number | null | undefined): string {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value)
+  }
+  return 'none'
+}
+
 function buildChunkNotesPrompt({ content }: { content: string }): string {
   return `Return 10 bullet points summarizing the content below (Markdown).
 
@@ -275,6 +299,7 @@ export async function runCli(
   const extractOnly = Boolean(program.opts().extractOnly)
   const json = Boolean(program.opts().json)
   const firecrawlMode = parseFirecrawlMode(program.opts().firecrawl as string)
+  const verbose = Boolean(program.opts().verbose)
 
   if (printPrompt && extractOnly) {
     throw new Error('--prompt and --extract-only are mutually exclusive')
@@ -295,6 +320,19 @@ export async function runCli(
     throw new Error('--firecrawl always requires FIRECRAWL_API_KEY')
   }
 
+  writeVerbose(
+    stderr,
+    verbose,
+    `config url=${url} timeoutMs=${timeoutMs} youtube=${youtubeMode} firecrawl=${firecrawlMode} length=${
+      lengthArg.kind === 'preset' ? lengthArg.preset : `${lengthArg.maxCharacters} chars`
+    } json=${json} extractOnly=${extractOnly} prompt=${printPrompt}`
+  )
+  writeVerbose(
+    stderr,
+    verbose,
+    `env openaiKey=${Boolean(apiKey)} apifyToken=${Boolean(apifyToken)} firecrawlKey=${firecrawlConfigured} model=${model}`
+  )
+
   const scrapeWithFirecrawl =
     firecrawlConfigured && firecrawlMode !== 'off'
       ? createFirecrawlScraper({ apiKey: firecrawlApiKey, fetchImpl: fetch })
@@ -306,11 +344,46 @@ export async function runCli(
     fetch,
   })
 
+  writeVerbose(stderr, verbose, 'extract start')
   const extracted = await client.fetchLinkContent(url, {
     timeoutMs,
     youtubeTranscript: youtubeMode,
     firecrawl: firecrawlMode,
   })
+  writeVerbose(
+    stderr,
+    verbose,
+    `extract done strategy=${extracted.diagnostics.strategy} siteName=${formatOptionalString(
+      extracted.siteName
+    )} title=${formatOptionalString(extracted.title)} transcriptSource=${formatOptionalString(
+      extracted.transcriptSource
+    )}`
+  )
+  writeVerbose(
+    stderr,
+    verbose,
+    `extract stats characters=${extracted.totalCharacters} words=${extracted.wordCount} transcriptCharacters=${formatOptionalNumber(
+      extracted.transcriptCharacters
+    )} transcriptLines=${formatOptionalNumber(extracted.transcriptLines)}`
+  )
+  writeVerbose(
+    stderr,
+    verbose,
+    `extract firecrawl attempted=${extracted.diagnostics.firecrawl.attempted} used=${extracted.diagnostics.firecrawl.used} notes=${formatOptionalString(
+      extracted.diagnostics.firecrawl.notes ?? null
+    )}`
+  )
+  writeVerbose(
+    stderr,
+    verbose,
+    `extract transcript textProvided=${extracted.diagnostics.transcript.textProvided} provider=${formatOptionalString(
+      extracted.diagnostics.transcript.provider ?? null
+    )} attemptedProviders=${
+      extracted.diagnostics.transcript.attemptedProviders.length > 0
+        ? extracted.diagnostics.transcript.attemptedProviders.join(',')
+        : 'none'
+    } notes=${formatOptionalString(extracted.diagnostics.transcript.notes ?? null)}`
+  )
 
   const isYouTube = extracted.siteName === 'YouTube'
   const prompt = buildLinkSummaryPrompt({
@@ -360,6 +433,11 @@ export async function runCli(
   }
 
   if (printPrompt || !apiKey) {
+    writeVerbose(
+      stderr,
+      verbose,
+      printPrompt ? 'mode prompt-only' : 'mode prompt-only (no OPENAI_API_KEY)'
+    )
     if (!apiKey && !json) {
       stderr.write('Missing OPENAI_API_KEY; printing prompt instead.\n')
     }
@@ -394,6 +472,7 @@ export async function runCli(
     return
   }
 
+  writeVerbose(stderr, verbose, 'mode summarize (OpenAI)')
   const maxCompletionTokens =
     lengthArg.kind === 'preset'
       ? SUMMARY_LENGTH_TO_TOKENS[lengthArg.preset]
@@ -405,6 +484,7 @@ export async function runCli(
 
   let summary: string
   if (!isLargeContent) {
+    writeVerbose(stderr, verbose, 'summarize strategy=single')
     summary = await summarizeWithOpenAI({
       apiKey,
       model,
@@ -421,9 +501,11 @@ export async function runCli(
     stderr.write(
       `Large input (${extracted.content.length} chars); summarizing in ${chunks.length} chunks.\n`
     )
+    writeVerbose(stderr, verbose, `summarize strategy=map-reduce chunks=${chunks.length}`)
 
     const chunkNotes: string[] = []
     for (let i = 0; i < chunks.length; i += 1) {
+      writeVerbose(stderr, verbose, `summarize chunk ${i + 1}/${chunks.length} notes start`)
       const chunkPrompt = buildChunkNotesPrompt({
         content: chunks[i] ?? '',
       })
@@ -449,6 +531,7 @@ export async function runCli(
       chunkNotes.push(notes.trim())
     }
 
+    writeVerbose(stderr, verbose, 'summarize merge chunk notes')
     const mergedContent = `Chunk notes (generated from the full input):\n\n${chunkNotes
       .filter((value) => value.length > 0)
       .join('\n\n')}`
