@@ -1,4 +1,4 @@
-import type { FirecrawlScrapeResult, ScrapeWithFirecrawl } from '@steipete/summarizer/content'
+import type { FirecrawlScrapeResult, ScrapeWithFirecrawl } from './content/link-preview/deps.js'
 
 type FirecrawlResponse = {
   success: boolean

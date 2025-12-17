@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { createFirecrawlScraper } from '../packages/cli/src/firecrawl.js'
+import { createFirecrawlScraper } from '../src/firecrawl.js'
 
 describe('createFirecrawlScraper', () => {
   it('returns markdown/html/metadata when successful', async () => {

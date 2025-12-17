@@ -1,5 +1,5 @@
-import { createLinkPreviewClient } from '@steipete/summarizer/content'
 import { describe, expect, it, vi } from 'vitest'
+import { createLinkPreviewClient } from '../src/content/index.js'
 
 const jsonResponse = (payload: unknown, status = 200) =>
   Response.json(payload, {

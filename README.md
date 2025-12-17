@@ -2,10 +2,16 @@
 
 Personal URL summarization CLI + a small reusable library.
 
-This repo is a **pnpm workspace** with two publishable packages:
+One npm package: `@steipete/summarize` (CLI + library exports).
 
-- `@steipete/summarize` (CLI): extracts content from a URL and (optionally) calls an LLM to produce a summary.
-- `@steipete/summarizer` (library): content extraction + prompt builders (two entry points).
+Docs (by mode):
+
+- `docs/website.md`
+- `docs/youtube.md`
+- `docs/firecrawl.md`
+- `docs/openai.md`
+- `docs/extract-only.md`
+- `docs/tweets.md`
 
 ## Features
 
@@ -13,18 +19,17 @@ This repo is a **pnpm workspace** with two publishable packages:
 - **YouTube transcripts** (when the URL is a YouTube link):
   - `youtubei` transcript endpoint (best-effort)
   - `captionTracks` (best-effort)
-  - `yt-dlp` fallback (optional; requires `yt-dlp` installed locally)
   - Apify transcript actor (optional fallback, requires `APIFY_API_TOKEN`)
   - If transcripts are blocked, we still extract `ytInitialPlayerResponse.videoDetails.shortDescription` so YouTube links summarize meaningfully.
 - **Firecrawl fallback for blocked sites**: if direct HTML fetching is blocked or yields too little content, we retry via Firecrawl to get Markdown (requires `FIRECRAWL_API_KEY`).
 - **Prompt-only mode**: print the generated prompt and use any model/provider you want.
 - **OpenAI mode**: if `OPENAI_API_KEY` is set, calls the Chat Completions API and prints the model output.
 - **Structured output**: `--json` emits a single JSON object with extraction diagnostics + the prompt + (optional) summary.
- - **Extract-only mode**: `--extract-only` prints the extracted content (no OpenAI call).
+- **Extract-only mode**: `--extract-only` prints the extracted content (no OpenAI call).
 
 ## CLI usage
 
-Build once:
+Install + build:
 
 ```bash
 pnpm install
@@ -40,20 +45,20 @@ pnpm summarize -- "https://example.com" --prompt
 Summarize a URL:
 
 ```bash
-node packages/cli/dist/esm/cli.js "https://example.com"
+node dist/esm/cli.js "https://example.com"
 ```
 
 Print the prompt only:
 
 ```bash
-node packages/cli/dist/esm/cli.js "https://example.com" --prompt
+node dist/esm/cli.js "https://example.com" --prompt
 ```
 
 Change model, length, YouTube mode, and timeout:
 
 ```bash
-node packages/cli/dist/esm/cli.js "https://example.com" --length 20k --timeout 30s --model gpt-5.2
-node packages/cli/dist/esm/cli.js "https://www.youtube.com/watch?v=I845O57ZSy4&t=11s" --youtube auto --length 8k
+node dist/esm/cli.js "https://example.com" --length 20k --timeout 30s --model gpt-5.2
+node dist/esm/cli.js "https://www.youtube.com/watch?v=I845O57ZSy4&t=11s" --youtube auto --length 8k
 ```
 
 Structured JSON output:
@@ -104,12 +109,12 @@ Used only as a fallback for non-YouTube URLs when direct HTML fetching/extractio
 
 ## Library API (for other Node programs)
 
-`@steipete/summarizer` exports two entry points:
+`@steipete/summarize` exports entry points:
 
-- `@steipete/summarizer/content`
+- `@steipete/summarize/content`
   - `createLinkPreviewClient({ fetch?, scrapeWithFirecrawl?, apifyApiToken? })`
   - `client.fetchLinkContent(url, { timeoutMs?, youtubeTranscript?, firecrawl? })`
-- `@steipete/summarizer/prompts`
+- `@steipete/summarize/prompts`
   - `buildLinkSummaryPrompt(...)` (`summaryLength` supports presets or `{ maxCharacters }`)
   - `SUMMARY_LENGTH_TO_TOKENS`
 

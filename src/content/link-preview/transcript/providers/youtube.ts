@@ -12,7 +12,6 @@ import {
 } from './youtube/api.js'
 import { fetchTranscriptWithApify } from './youtube/apify.js'
 import { fetchTranscriptFromCaptionTracks } from './youtube/captions.js'
-import { fetchTranscriptWithYtDlp } from './youtube/ytdlp.js'
 
 const YOUTUBE_URL_PATTERN = /youtube\.com|youtu\.be/i
 
@@ -68,17 +67,6 @@ export const fetchTranscript = async (
         text: normalizeTranscriptText(captionTranscript),
         source: 'captionTracks',
         metadata: { provider: 'captionTracks' },
-        attemptedProviders,
-      }
-    }
-
-    attemptedProviders.push('yt-dlp')
-    const ytdlpTranscript = await fetchTranscriptWithYtDlp(options.fetch, url)
-    if (ytdlpTranscript) {
-      return {
-        text: normalizeTranscriptText(ytdlpTranscript),
-        source: 'yt-dlp',
-        metadata: { provider: 'yt-dlp' },
         attemptedProviders,
       }
     }

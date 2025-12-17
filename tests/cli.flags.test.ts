@@ -5,7 +5,7 @@ import {
   parseFirecrawlMode,
   parseLengthArg,
   parseYoutubeMode,
-} from '../packages/cli/src/flags.js'
+} from '../src/flags.js'
 
 describe('cli flag parsing', () => {
   it('parses --youtube', () => {

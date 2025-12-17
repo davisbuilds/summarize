@@ -1,5 +1,5 @@
-import { createLinkPreviewClient } from '@steipete/summarizer/content'
 import { describe, expect, it } from 'vitest'
+import { createLinkPreviewClient } from '../src/content/index.js'
 
 const LIVE = process.env.SUMMARIZE_LIVE_TESTS === '1'
 

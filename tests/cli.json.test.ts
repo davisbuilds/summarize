@@ -1,7 +1,7 @@
 import { Writable } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 
-import { runCli } from '../packages/cli/src/run.js'
+import { runCli } from '../src/run.js'
 
 const htmlResponse = (html: string, status = 200) =>
   new Response(html, {

@@ -1,4 +1,4 @@
-import type { SummaryLength } from '@steipete/summarizer/prompts'
+import type { SummaryLength } from './shared/contracts.js'
 
 export type YoutubeMode = 'auto' | 'web' | 'apify'
 export type FirecrawlMode = 'off' | 'auto' | 'always'

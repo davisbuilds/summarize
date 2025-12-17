@@ -1,12 +1,12 @@
-import { createLinkPreviewClient } from '@steipete/summarizer/content'
+import { Command } from 'commander'
+import { createLinkPreviewClient } from './content/index.js'
+import { createFirecrawlScraper } from './firecrawl.js'
+import { parseDurationMs, parseFirecrawlMode, parseLengthArg, parseYoutubeMode } from './flags.js'
 import {
   buildLinkSummaryPrompt,
   estimateMaxCompletionTokensForCharacters,
   SUMMARY_LENGTH_TO_TOKENS,
-} from '@steipete/summarizer/prompts'
-import { Command } from 'commander'
-import { createFirecrawlScraper } from './firecrawl.js'
-import { parseDurationMs, parseFirecrawlMode, parseLengthArg, parseYoutubeMode } from './flags.js'
+} from './prompts/index.js'
 
 type RunEnv = {
   env: Record<string, string | undefined>
@@ -48,7 +48,7 @@ function buildProgram() {
     .description(
       'Summarize web pages and YouTube links (prompt-only when OPENAI_API_KEY is missing).'
     )
-    .argument('<url>', 'URL to summarize')
+    .argument('[url]', 'URL to summarize')
     .option(
       '--youtube <mode>',
       'YouTube transcript source: auto (web then apify), web (youtubei/captionTracks), apify',

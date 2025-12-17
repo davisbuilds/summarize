@@ -1,5 +1,5 @@
-import { createLinkPreviewClient } from '@steipete/summarizer/content'
 import { describe, expect, it, vi } from 'vitest'
+import { createLinkPreviewClient } from '../src/content/index.js'
 
 const htmlResponse = (html: string, status = 200) =>
   new Response(html, {
