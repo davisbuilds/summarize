@@ -8,6 +8,36 @@ const htmlResponse = (html: string, status = 200) =>
   })
 
 describe('link preview extraction (Firecrawl fallback)', () => {
+  it('does not call Firecrawl for short but complete pages', async () => {
+    const html =
+      '<!doctype html><html><head><title>Example</title></head><body><main><p>' +
+      'This domain is for use in documentation examples without needing permission.' +
+      '</p></main></body></html>'
+
+    const scrapeWithFirecrawl = vi.fn(async () => ({
+      markdown: '# Should not run',
+      html: null,
+      metadata: null,
+    }))
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.url
+      if (url === 'https://example.com') {
+        return htmlResponse(html)
+      }
+      throw new Error(`Unexpected fetch call: ${url}`)
+    })
+
+    const client = createLinkPreviewClient({
+      fetch: fetchMock as unknown as typeof fetch,
+      scrapeWithFirecrawl,
+    })
+
+    const result = await client.fetchLinkContent('https://example.com', { timeoutMs: 2000 })
+    expect(result.diagnostics.strategy).toBe('html')
+    expect(scrapeWithFirecrawl).not.toHaveBeenCalled()
+  })
+
   it('does not call Firecrawl when HTML looks usable', async () => {
     const html = `<!doctype html><html><head><title>Ok</title></head><body><article><p>${'A'.repeat(
       260
@@ -35,6 +65,38 @@ describe('link preview extraction (Firecrawl fallback)', () => {
     const result = await client.fetchLinkContent('https://example.com', { timeoutMs: 2000 })
     expect(result.diagnostics.strategy).toBe('html')
     expect(scrapeWithFirecrawl).not.toHaveBeenCalled()
+  })
+
+  it('falls back to Firecrawl when extracted HTML looks thin but document is large', async () => {
+    const html =
+      '<!doctype html><html><head><title>App Shell</title></head><body><main>' +
+      '<div id="root"></div><script>/*' +
+      'X'.repeat(9000) +
+      '*/</script></main></body></html>'
+
+    const scrapeWithFirecrawl = vi.fn(async () => ({
+      markdown: 'Hello from Firecrawl',
+      html: '<html><head><title>Firecrawl</title></head><body></body></html>',
+      metadata: { title: 'Firecrawl title' },
+    }))
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.url
+      if (url === 'https://example.com') {
+        return htmlResponse(html)
+      }
+      throw new Error(`Unexpected fetch call: ${url}`)
+    })
+
+    const client = createLinkPreviewClient({
+      fetch: fetchMock as unknown as typeof fetch,
+      scrapeWithFirecrawl,
+    })
+
+    const result = await client.fetchLinkContent('https://example.com', { timeoutMs: 2000 })
+    expect(result.diagnostics.strategy).toBe('firecrawl')
+    expect(result.content).toContain('Hello from Firecrawl')
+    expect(scrapeWithFirecrawl).toHaveBeenCalledTimes(1)
   })
 
   it('does not call Firecrawl when firecrawl is off', async () => {

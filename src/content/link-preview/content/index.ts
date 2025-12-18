@@ -26,6 +26,7 @@ const LEADING_CONTROL_PATTERN = /^[\\s\\p{Cc}]+/u
 const BLOCKED_HTML_HINT_PATTERN =
   /access denied|attention required|captcha|cloudflare|enable javascript|forbidden|please turn javascript on|verify you are human/i
 const MIN_HTML_CONTENT_CHARACTERS = 200
+const MIN_HTML_DOCUMENT_CHARACTERS_FOR_FALLBACK = 5000
 
 function stripLeadingTitle(content: string, title: string | null | undefined): string {
   if (!(content && title)) {
@@ -52,7 +53,14 @@ function shouldFallbackToFirecrawl(html: string): boolean {
     return true
   }
   const normalized = normalizeForPrompt(extractArticleContent(html))
-  return normalized.length < MIN_HTML_CONTENT_CHARACTERS
+  if (normalized.length >= MIN_HTML_CONTENT_CHARACTERS) {
+    return false
+  }
+
+  // Avoid spending Firecrawl on truly small/simple pages where the extracted HTML content is short but
+  // likely complete (e.g. https://example.com). Only treat "thin" content as a Firecrawl signal when
+  // the HTML document itself is large (SSR/app-shell pages, blocked pages without a match, etc.).
+  return html.length >= MIN_HTML_DOCUMENT_CHARACTERS_FOR_FALLBACK
 }
 
 export async function fetchLinkContent(
