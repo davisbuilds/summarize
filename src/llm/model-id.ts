@@ -20,23 +20,25 @@ export function normalizeGatewayStyleModelId(raw: string): string {
     throw new Error('Missing model id')
   }
 
-  // Common historical alias (used in prompts/docs earlier)
-  if (trimmed === 'grok-4-1-fast-non-reasoning') return 'xai/grok-4-fast-non-reasoning'
-  if (trimmed === 'grok-4.1-fast-non-reasoning') return 'xai/grok-4-fast-non-reasoning'
-  if (trimmed === 'xai/grok-4-1-fast-non-reasoning') return 'xai/grok-4-fast-non-reasoning'
-  if (trimmed === 'xai/grok-4.1-fast-non-reasoning') return 'xai/grok-4-fast-non-reasoning'
+  const normalized = trimmed.toLowerCase()
 
-  const slash = trimmed.indexOf('/')
+  // Common historical alias (used in prompts/docs earlier)
+  if (normalized === 'grok-4-1-fast-non-reasoning') return 'xai/grok-4-fast-non-reasoning'
+  if (normalized === 'grok-4.1-fast-non-reasoning') return 'xai/grok-4-fast-non-reasoning'
+  if (normalized === 'xai/grok-4-1-fast-non-reasoning') return 'xai/grok-4-fast-non-reasoning'
+  if (normalized === 'xai/grok-4.1-fast-non-reasoning') return 'xai/grok-4-fast-non-reasoning'
+
+  const slash = normalized.indexOf('/')
   if (slash === -1) {
     // Best-effort inference for backwards-compat CLI usage.
-    if (trimmed.startsWith('grok-')) return `xai/${trimmed}`
-    if (trimmed.startsWith('gemini-')) return `google/${trimmed}`
-    if (trimmed.startsWith('claude-')) return `anthropic/${trimmed}`
-    return `openai/${trimmed}`
+    if (normalized.startsWith('grok-')) return `xai/${normalized}`
+    if (normalized.startsWith('gemini-')) return `google/${normalized}`
+    if (normalized.startsWith('claude-')) return `anthropic/${normalized}`
+    return `openai/${normalized}`
   }
 
-  const provider = trimmed.slice(0, slash).toLowerCase()
-  const model = trimmed.slice(slash + 1)
+  const provider = normalized.slice(0, slash)
+  const model = normalized.slice(slash + 1)
   if (!PROVIDERS.includes(provider as LlmProvider)) {
     throw new Error(
       `Unsupported model provider "${provider}". Use xai/..., openai/..., google/..., or anthropic/...`

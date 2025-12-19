@@ -23,6 +23,17 @@ describe('model id parsing', () => {
     )
   })
 
+  it('normalizes casing', () => {
+    expect(normalizeGatewayStyleModelId('GOOGLE/GEMINI-3-FLASH-PREVIEW')).toBe(
+      'google/gemini-3-flash-preview'
+    )
+    expect(normalizeGatewayStyleModelId('GEMINI-2.0-FLASH')).toBe('google/gemini-2.0-flash')
+    expect(normalizeGatewayStyleModelId('GPT-5.2')).toBe('openai/gpt-5.2')
+    expect(normalizeGatewayStyleModelId('XAI/GROK-4-1-FAST-NON-REASONING')).toBe(
+      'xai/grok-4-fast-non-reasoning'
+    )
+  })
+
   it('infers provider for bare model ids (best-effort)', () => {
     expect(normalizeGatewayStyleModelId('grok-4')).toBe('xai/grok-4')
     expect(normalizeGatewayStyleModelId('gemini-2.0-flash')).toBe('google/gemini-2.0-flash')

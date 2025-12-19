@@ -59,4 +59,44 @@ describe('cli entrypoint', () => {
     process.exitCode = previousExitCode
     stderrWrite.mockRestore()
   })
+
+  it('prints string rejections as-is', async () => {
+    runCliMainMock.mockClear()
+    vi.resetModules()
+
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const previousExitCode = process.exitCode
+
+    runCliMainMock.mockRejectedValueOnce('boom-string')
+    await import('../src/cli.js?reject=string')
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const text = stderrWrite.mock.calls.map((args) => String(args[0])).join('')
+    expect(text).toContain('boom-string')
+    expect(process.exitCode).toBe(1)
+
+    process.exitCode = previousExitCode
+    stderrWrite.mockRestore()
+  })
+
+  it('prints fallback text for falsy rejections', async () => {
+    runCliMainMock.mockClear()
+    vi.resetModules()
+
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const previousExitCode = process.exitCode
+
+    runCliMainMock.mockRejectedValueOnce(null)
+    await import('../src/cli.js?reject=null')
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const text = stderrWrite.mock.calls.map((args) => String(args[0])).join('')
+    expect(text).toContain('Unknown error')
+    expect(process.exitCode).toBe(1)
+
+    process.exitCode = previousExitCode
+    stderrWrite.mockRestore()
+  })
 })
