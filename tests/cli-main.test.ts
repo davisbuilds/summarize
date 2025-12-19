@@ -108,4 +108,103 @@ describe('cli main wiring', async () => {
     const error = Object.assign(new Error('nope'), { code: 'NOPE' })
     expect(() => (handler as (error: unknown) => void)(error)).toThrow(error)
   })
+
+  it('prints stack and cause when verbose', async () => {
+    const error = new Error('boom')
+    error.cause = new Error('root')
+    runCliMock.mockReset().mockRejectedValue(error)
+
+    let stderrText = ''
+    const stderr = new Writable({
+      write(chunk, _encoding, callback) {
+        stderrText += chunk.toString()
+        callback()
+      },
+    })
+
+    let exitCode: number | null = null
+    await runCliMain({
+      argv: ['--verbose=true'],
+      env: {},
+      fetch: globalThis.fetch.bind(globalThis),
+      stdout: new Writable({
+        write(_c, _e, cb) {
+          cb()
+        },
+      }),
+      stderr,
+      exit: () => {},
+      setExitCode: (code) => {
+        exitCode = code
+      },
+    })
+
+    expect(exitCode).toBe(1)
+    expect(stderrText).toContain('Error: boom')
+    expect(stderrText).toContain('Caused by: Error: root')
+  })
+
+  it('prints string errors even when verbose is set', async () => {
+    runCliMock.mockReset().mockRejectedValue('plain-error')
+
+    let stderrText = ''
+    const stderr = new Writable({
+      write(chunk, _encoding, callback) {
+        stderrText += chunk.toString()
+        callback()
+      },
+    })
+
+    let exitCode: number | null = null
+    await runCliMain({
+      argv: ['--verbose'],
+      env: {},
+      fetch: globalThis.fetch.bind(globalThis),
+      stdout: new Writable({
+        write(_c, _e, cb) {
+          cb()
+        },
+      }),
+      stderr,
+      exit: () => {},
+      setExitCode: (code) => {
+        exitCode = code
+      },
+    })
+
+    expect(exitCode).toBe(1)
+    expect(stderrText.trim()).toBe('plain-error')
+  })
+
+  it('prints fallback text for falsy errors', async () => {
+    runCliMock.mockReset().mockRejectedValue(null)
+
+    let stderrText = ''
+    const stderr = new Writable({
+      write(chunk, _encoding, callback) {
+        stderrText += chunk.toString()
+        callback()
+      },
+    })
+
+    let exitCode: number | null = null
+    await runCliMain({
+      argv: [],
+      env: {},
+      fetch: globalThis.fetch.bind(globalThis),
+      stdout: new Writable({
+        write(_c, _e, cb) {
+          cb()
+        },
+      }),
+      stderr,
+      exit: () => {},
+      setExitCode: (code) => {
+        exitCode = code
+      },
+    })
+
+    expect(exitCode).toBe(1)
+    expect(stderrText.trim()).toBe('Unknown error')
+  })
 })
