@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here.
 
+## 0.1.1 - 2025-12-19
+
+### Fixes
+
+- Accept common “pasted URL” patterns like `url (canonical)` and clean up accidental `\\?` / `\\=` / `%5C` before query separators.
+
 ## 0.1.0 - 2025-12-19
 
 First public release.
