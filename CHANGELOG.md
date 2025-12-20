@@ -9,6 +9,7 @@
 - Reject text files over 10 MB before tokenization.
 - Reject too-small numeric `--length` and `--max-output-tokens` values.
 - Cap summaries to the extracted content length when a requested size is larger.
+- Skip summarization for tweets when extracted content is already below the requested length.
 - Compute cost totals via tokentally’s tally helpers.
 - Improve fetch spinner with elapsed time and throughput updates.
 - Show Firecrawl fallback status and reason when scraping kicks in.
@@ -25,6 +26,7 @@
 - Add coverage for cumulative stream merge handling.
 - Add coverage for streaming timeout fallback.
 - Add live coverage for Wikipedia URLs with parentheses.
+- Add coverage for tweet summaries that bypass the LLM when short.
 
 ### Docs
 

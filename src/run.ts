@@ -41,6 +41,7 @@ import {
   resolveLiteLlmPricingForModelId,
 } from './pricing/litellm.js'
 import { buildFileSummaryPrompt, buildLinkSummaryPrompt } from './prompts/index.js'
+import type { SummaryLength } from './shared/contracts.js'
 import { startOscProgress } from './tty/osc-progress.js'
 import { startSpinner } from './tty/spinner.js'
 import { resolvePackageVersion } from './version.js'
@@ -54,6 +55,21 @@ type RunEnv = {
 
 const BIRD_TIP = 'Tip: Install bird🐦 for better Twitter support: https://github.com/steipete/bird'
 const TWITTER_HOSTS = new Set(['x.com', 'twitter.com', 'mobile.twitter.com'])
+const SUMMARY_LENGTH_MAX_CHARACTERS: Record<SummaryLength, number> = {
+  short: 1200,
+  medium: 2500,
+  long: 6000,
+  xl: 14000,
+  xxl: Number.POSITIVE_INFINITY,
+}
+
+function resolveTargetCharacters(
+  lengthArg: { kind: 'preset'; preset: SummaryLength } | { kind: 'chars'; maxCharacters: number }
+): number {
+  return lengthArg.kind === 'chars'
+    ? lengthArg.maxCharacters
+    : SUMMARY_LENGTH_MAX_CHARACTERS[lengthArg.preset]
+}
 
 function isTwitterStatusUrl(raw: string): boolean {
   try {
@@ -1771,6 +1787,84 @@ export async function runCli(
           llm: null,
           metrics: metricsEnabled ? finishReport : null,
           summary: null,
+        }
+        if (metricsDetailed && finishReport) {
+          writeMetricsReport(finishReport)
+        }
+        stdout.write(`${JSON.stringify(payload, null, 2)}\n`)
+        if (metricsEnabled && finishReport) {
+          const costUsd = await estimateCostUsd()
+          writeFinishLine({
+            stderr,
+            elapsedMs: Date.now() - runStartedAtMs,
+            model,
+            report: finishReport,
+            costUsd,
+            color: verboseColor,
+          })
+        }
+        return
+      }
+
+      stdout.write(`${extracted.content}\n`)
+      const report = shouldComputeReport ? await buildReport() : null
+      if (metricsDetailed && report) writeMetricsReport(report)
+      if (metricsEnabled && report) {
+        const costUsd = await estimateCostUsd()
+        writeFinishLine({
+          stderr,
+          elapsedMs: Date.now() - runStartedAtMs,
+          model,
+          report,
+          costUsd,
+          color: verboseColor,
+        })
+      }
+      return
+    }
+
+    const shouldSkipTweetSummary =
+      isTwitterStatusUrl(url) &&
+      extracted.content.length > 0 &&
+      extracted.content.length <= resolveTargetCharacters(lengthArg)
+    if (shouldSkipTweetSummary) {
+      clearProgressForStdout()
+      writeVerbose(
+        stderr,
+        verbose,
+        `skip summary: tweet content length=${extracted.content.length} target=${resolveTargetCharacters(lengthArg)}`,
+        verboseColor
+      )
+      if (json) {
+        const finishReport = shouldComputeReport ? await buildReport() : null
+        const payload: JsonOutput = {
+          input: {
+            kind: 'url',
+            url,
+            timeoutMs,
+            youtube: youtubeMode,
+            firecrawl: firecrawlMode,
+            markdown: effectiveMarkdownMode,
+            length:
+              lengthArg.kind === 'preset'
+                ? { kind: 'preset', preset: lengthArg.preset }
+                : { kind: 'chars', maxCharacters: lengthArg.maxCharacters },
+            maxOutputTokens: maxOutputTokensArg,
+            model,
+          },
+          env: {
+            hasXaiKey: Boolean(xaiApiKey),
+            hasOpenAIKey: Boolean(apiKey),
+            hasApifyToken: Boolean(apifyToken),
+            hasFirecrawlKey: firecrawlConfigured,
+            hasGoogleKey: googleConfigured,
+            hasAnthropicKey: anthropicConfigured,
+          },
+          extracted,
+          prompt,
+          llm: null,
+          metrics: metricsEnabled ? finishReport : null,
+          summary: extracted.content,
         }
         if (metricsDetailed && finishReport) {
           writeMetricsReport(finishReport)
