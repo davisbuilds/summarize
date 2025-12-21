@@ -2,6 +2,10 @@
 
 ## 0.4.1 - Unreleased
 
+### Fixes
+
+- Deduplicate overlapping/cumulative streaming chunks to prevent repeated sections in live Markdown output.
+
 ### Docs
 
 - Update README for the new Markdown/extract/preprocess flags.

@@ -62,7 +62,10 @@ function writeLiteLlmCache(root: string) {
   )
 }
 
-async function runStreamedSummary(chunks: string[]): Promise<string> {
+async function runStreamedSummary(
+  chunks: string[],
+  options?: { render?: 'plain' | 'md' | 'md-live'; stdoutIsTty?: boolean }
+): Promise<string> {
   streamTextMock.mockImplementationOnce(() => ({
     textStream: createTextStream(chunks),
     totalUsage: Promise.resolve({
@@ -90,6 +93,11 @@ async function runStreamedSummary(chunks: string[]): Promise<string> {
   })
 
   const stdout = collectStream()
+  if (options?.stdoutIsTty) {
+    const stream = stdout.stream as unknown as { isTTY?: boolean; columns?: number }
+    stream.isTTY = true
+    stream.columns = 80
+  }
   const stderr = collectStream()
 
   try {
@@ -102,11 +110,15 @@ async function runStreamedSummary(chunks: string[]): Promise<string> {
         '--stream',
         'on',
         '--render',
-        'plain',
+        options?.render ?? 'plain',
         'https://example.com',
       ],
       {
-        env: { HOME: root, OPENAI_API_KEY: 'test' },
+        env: {
+          HOME: root,
+          OPENAI_API_KEY: 'test',
+          ...(options?.stdoutIsTty ? { NO_COLOR: '1' } : {}),
+        },
         fetch: fetchMock as unknown as typeof fetch,
         stdout: stdout.stream,
         stderr: stderr.stream,
@@ -138,5 +150,13 @@ describe('cli stream chunk merge', () => {
   it('handles mixed delta then cumulative chunks', async () => {
     const out = await runStreamedSummary(['Hello ', 'world', 'Hello world!!'])
     expect(out).toBe('Hello world!!\n')
+  })
+
+  it('treats near-prefix cumulative chunks as replacements', async () => {
+    const out = await runStreamedSummary(['Hello world.', 'Hello world!'], {
+      render: 'md',
+      stdoutIsTty: true,
+    })
+    expect(out).toBe('Hello world!\n')
   })
 })
