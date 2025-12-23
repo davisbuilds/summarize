@@ -1,4 +1,5 @@
 export type { SummaryLength } from '../shared/contracts.js'
+export { buildPathSummaryPrompt } from './cli.js'
 export { buildFileSummaryPrompt, buildFileTextSummaryPrompt } from './file.js'
 export {
   buildLinkSummaryPrompt,

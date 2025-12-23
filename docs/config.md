@@ -106,3 +106,23 @@ Notes:
 - `model.rules` is optional. If omitted, built-in defaults apply.
 - `model.rules[].when` (optional) must be an array (e.g. `["video","youtube"]`).
 - `model.rules[]` must use either `candidates` or `bands`.
+
+## CLI config
+
+```json
+{
+  "cli": {
+    "prefer": true,
+    "disabled": ["gemini"],
+    "codex": { "model": "gpt-5.2" },
+    "claude": { "path": "/usr/local/bin/claude", "args": ["--verbose"] }
+  }
+}
+```
+
+Notes:
+
+- `cli.prefer` defaults to `true` (auto mode prepends CLI attempts).
+- `cli.disabled` can disable individual CLI providers.
+- `cli.<provider>.path` overrides CLI binary discovery.
+- `cli.<provider>.args` appends extra CLI args.

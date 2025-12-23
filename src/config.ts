@@ -6,6 +6,20 @@ import JSON5 from 'json5'
 
 export type AutoRuleKind = 'text' | 'website' | 'youtube' | 'image' | 'video' | 'file'
 export type VideoMode = 'auto' | 'transcript' | 'understand'
+export type CliProvider = 'claude' | 'codex' | 'gemini'
+export type CliProviderConfig = {
+  binary?: string
+  extraArgs?: string[]
+  model?: string
+  enabled?: boolean
+}
+export type CliConfig = {
+  disabled?: CliProvider[]
+  prefer?: boolean
+  claude?: CliProviderConfig
+  codex?: CliProviderConfig
+  gemini?: CliProviderConfig
+}
 
 export type AutoRule = {
   /**
@@ -48,6 +62,7 @@ export type SummarizeConfig = {
   media?: {
     videoMode?: VideoMode
   }
+  cli?: CliConfig
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -63,6 +78,61 @@ function parseAutoRuleKind(value: unknown): AutoRuleKind | null {
     value === 'file'
     ? (value as AutoRuleKind)
     : null
+}
+
+function parseCliProvider(value: unknown, path: string): CliProvider {
+  const trimmed = typeof value === 'string' ? value.trim().toLowerCase() : ''
+  if (trimmed === 'claude' || trimmed === 'codex' || trimmed === 'gemini') {
+    return trimmed as CliProvider
+  }
+  throw new Error(`Invalid config file ${path}: unknown CLI provider "${String(value)}".`)
+}
+
+function parseStringArray(raw: unknown, path: string, label: string): string[] {
+  if (!Array.isArray(raw)) {
+    throw new Error(`Invalid config file ${path}: "${label}" must be an array of strings.`)
+  }
+  const items: string[] = []
+  for (const entry of raw) {
+    if (typeof entry !== 'string') {
+      throw new Error(`Invalid config file ${path}: "${label}" must be an array of strings.`)
+    }
+    const trimmed = entry.trim()
+    if (!trimmed) continue
+    items.push(trimmed)
+  }
+  return items
+}
+
+function parseCliProviderList(raw: unknown, path: string): CliProvider[] | undefined {
+  if (!Array.isArray(raw)) {
+    throw new Error(`Invalid config file ${path}: "cli.disabled" must be an array.`)
+  }
+  const providers: CliProvider[] = []
+  for (const entry of raw) {
+    const parsed = parseCliProvider(entry, path)
+    if (!providers.includes(parsed)) providers.push(parsed)
+  }
+  return providers.length > 0 ? providers : undefined
+}
+
+function parseCliProviderConfig(raw: unknown, path: string, label: string): CliProviderConfig {
+  if (!isRecord(raw)) {
+    throw new Error(`Invalid config file ${path}: "cli.${label}" must be an object.`)
+  }
+  const binaryValue = typeof raw.binary === 'string' ? raw.binary.trim() : undefined
+  const modelValue = typeof raw.model === 'string' ? raw.model.trim() : undefined
+  const enabledValue = typeof raw.enabled === 'boolean' ? raw.enabled : undefined
+  const extraArgs =
+    typeof raw.extraArgs === 'undefined'
+      ? undefined
+      : parseStringArray(raw.extraArgs, path, `cli.${label}.extraArgs`)
+  return {
+    ...(binaryValue ? { binary: binaryValue } : {}),
+    ...(modelValue ? { model: modelValue } : {}),
+    ...(typeof enabledValue === 'boolean' ? { enabled: enabledValue } : {}),
+    ...(extraArgs && extraArgs.length > 0 ? { extraArgs } : {}),
+  }
 }
 
 function parseWhenKinds(raw: unknown, path: string): AutoRuleKind[] {
@@ -338,5 +408,53 @@ export function loadSummarizeConfig({ env }: { env: Record<string, string | unde
     return videoMode ? { videoMode } : undefined
   })()
 
-  return { config: { ...(model ? { model } : {}), ...(media ? { media } : {}) }, path }
+  const cli = (() => {
+    const value = parsed.cli
+    if (!isRecord(value)) return undefined
+
+    const disabled =
+      typeof value.disabled !== 'undefined' ? parseCliProviderList(value.disabled, path) : undefined
+    const prefer = typeof value.prefer === 'boolean' ? value.prefer : undefined
+    const claude = value.claude ? parseCliProviderConfig(value.claude, path, 'claude') : undefined
+    const codex = value.codex ? parseCliProviderConfig(value.codex, path, 'codex') : undefined
+    const gemini = value.gemini ? parseCliProviderConfig(value.gemini, path, 'gemini') : undefined
+    const promptOverride =
+      typeof value.promptOverride === 'string' && value.promptOverride.trim().length > 0
+        ? value.promptOverride.trim()
+        : undefined
+    const allowTools = typeof value.allowTools === 'boolean' ? value.allowTools : undefined
+    const cwd =
+      typeof value.cwd === 'string' && value.cwd.trim().length > 0 ? value.cwd.trim() : undefined
+    const extraArgs =
+      typeof value.extraArgs === 'undefined'
+        ? undefined
+        : parseStringArray(value.extraArgs, path, 'cli.extraArgs')
+
+    return disabled ||
+      typeof prefer === 'boolean' ||
+      claude ||
+      codex ||
+      gemini ||
+      promptOverride ||
+      typeof allowTools === 'boolean' ||
+      cwd ||
+      (extraArgs && extraArgs.length > 0)
+      ? {
+          ...(disabled ? { disabled } : {}),
+          ...(typeof prefer === 'boolean' ? { prefer } : {}),
+          ...(claude ? { claude } : {}),
+          ...(codex ? { codex } : {}),
+          ...(gemini ? { gemini } : {}),
+          ...(promptOverride ? { promptOverride } : {}),
+          ...(typeof allowTools === 'boolean' ? { allowTools } : {}),
+          ...(cwd ? { cwd } : {}),
+          ...(extraArgs && extraArgs.length > 0 ? { extraArgs } : {}),
+        }
+      : undefined
+  })()
+
+  return {
+    config: { ...(model ? { model } : {}), ...(media ? { media } : {}), ...(cli ? { cli } : {}) },
+    path,
+  }
 }

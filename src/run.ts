@@ -1,13 +1,15 @@
 import { execFile } from 'node:child_process'
 import { accessSync, constants as fsConstants } from 'node:fs'
 import fs from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { ModelMessage } from 'ai'
 import { Command, CommanderError, Option } from 'commander'
 import { countTokens } from 'gpt-tokenizer'
 import { createLiveRenderer, render as renderMarkdownAnsi } from 'markdansi'
+import mime from 'mime'
 import { normalizeTokenUsage, tallyCosts } from 'tokentally'
-import { loadSummarizeConfig } from './config.js'
+import { type CliProvider, loadSummarizeConfig } from './config.js'
 import {
   buildAssetPromptMessages,
   classifyUrl,
@@ -34,6 +36,7 @@ import {
   parseVideoMode,
   parseYoutubeMode,
 } from './flags.js'
+import { isCliDisabled, resolveCliBinary, runCliModel } from './llm/cli.js'
 import { generateTextWithModelId, streamTextWithModelId } from './llm/generate-text.js'
 import { resolveGoogleModelForUsage } from './llm/google-models.js'
 import { createHtmlToMarkdownConverter } from './llm/html-to-markdown.js'
@@ -51,6 +54,7 @@ import {
   buildFileSummaryPrompt,
   buildFileTextSummaryPrompt,
   buildLinkSummaryPrompt,
+  buildPathSummaryPrompt,
 } from './prompts/index.js'
 import type { SummaryLength } from './shared/contracts.js'
 import { startOscProgress } from './tty/osc-progress.js'
@@ -105,27 +109,66 @@ function isExecutable(filePath: string): boolean {
   }
 }
 
-function hasBirdCli(env: Record<string, string | undefined>): boolean {
-  const candidates: string[] = []
+function resolveExecutableInPath(
+  binary: string,
+  env: Record<string, string | undefined>
+): string | null {
+  if (!binary) return null
+  if (path.isAbsolute(binary)) {
+    return isExecutable(binary) ? binary : null
+  }
   const pathEnv = env.PATH ?? ''
   for (const entry of pathEnv.split(path.delimiter)) {
     if (!entry) continue
-    candidates.push(path.join(entry, 'bird'))
+    const candidate = path.join(entry, binary)
+    if (isExecutable(candidate)) return candidate
   }
-  return candidates.some((candidate) => isExecutable(candidate))
+  return null
+}
+
+function hasBirdCli(env: Record<string, string | undefined>): boolean {
+  return resolveExecutableInPath('bird', env) !== null
 }
 
 function hasUvxCli(env: Record<string, string | undefined>): boolean {
   if (typeof env.UVX_PATH === 'string' && env.UVX_PATH.trim().length > 0) {
     return true
   }
-  const candidates: string[] = []
-  const pathEnv = env.PATH ?? ''
-  for (const entry of pathEnv.split(path.delimiter)) {
-    if (!entry) continue
-    candidates.push(path.join(entry, 'uvx'))
+  return resolveExecutableInPath('uvx', env) !== null
+}
+
+function resolveCliAvailability({
+  env,
+  config,
+}: {
+  env: Record<string, string | undefined>
+  config: ReturnType<typeof loadSummarizeConfig>['config'] | null
+}): Partial<Record<CliProvider, boolean>> {
+  const cliConfig = config?.cli ?? null
+  const providers: CliProvider[] = ['claude', 'codex', 'gemini']
+  const availability: Partial<Record<CliProvider, boolean>> = {}
+  for (const provider of providers) {
+    if (isCliDisabled(provider, cliConfig)) {
+      availability[provider] = false
+      continue
+    }
+    const binary = resolveCliBinary(provider, cliConfig, env)
+    availability[provider] = resolveExecutableInPath(binary, env) !== null
   }
-  return candidates.some((candidate) => isExecutable(candidate))
+  return availability
+}
+
+function parseCliUserModelId(modelId: string): { provider: CliProvider; model: string | null } {
+  const parts = modelId
+    .trim()
+    .split('/')
+    .map((part) => part.trim())
+  const provider = parts[1]?.toLowerCase()
+  if (provider !== 'claude' && provider !== 'codex' && provider !== 'gemini') {
+    throw new Error(`Invalid CLI model id "${modelId}". Expected cli/<provider>/<model>.`)
+  }
+  const model = parts.slice(2).join('/').trim()
+  return { provider, model: model.length > 0 ? model : null }
 }
 
 type BirdTweetPayload = {
@@ -235,7 +278,7 @@ type JsonOutput = {
   extracted: unknown
   prompt: string
   llm: {
-    provider: 'xai' | 'openai' | 'google' | 'anthropic'
+    provider: 'xai' | 'openai' | 'google' | 'anthropic' | 'cli'
     model: string
     maxCompletionTokens: number | null
     strategy: 'single'
@@ -312,7 +355,7 @@ function buildProgram() {
     .option('--retries <count>', 'LLM retry attempts on timeout (default: 1).', '1')
     .option(
       '--model <model>',
-      'LLM model id: auto, xai/..., openai/..., google/..., anthropic/... or openrouter/<author>/<slug> (default: google/gemini-3-flash-preview)',
+      'LLM model id: auto, free, cli/<provider>/<model>, xai/..., openai/..., google/..., anthropic/... or openrouter/<author>/<slug> (default: auto)',
       undefined
     )
     .option('--extract', 'Print extracted content and exit (no LLM summary)', false)
@@ -499,6 +542,43 @@ function getFileBytesFromAttachment(
   return data instanceof Uint8Array ? data : null
 }
 
+function getAttachmentBytes(
+  attachment: Awaited<ReturnType<typeof loadLocalAsset>>['attachment']
+): Uint8Array | null {
+  if (attachment.part.type === 'image') {
+    const image = (attachment.part as { image?: unknown }).image
+    return image instanceof Uint8Array ? image : null
+  }
+  return getFileBytesFromAttachment(attachment)
+}
+
+async function ensureCliAttachmentPath({
+  sourceKind,
+  sourceLabel,
+  attachment,
+}: {
+  sourceKind: 'file' | 'asset-url'
+  sourceLabel: string
+  attachment: Awaited<ReturnType<typeof loadLocalAsset>>['attachment']
+}): Promise<string> {
+  if (sourceKind === 'file') return sourceLabel
+  const bytes = getAttachmentBytes(attachment)
+  if (!bytes) {
+    throw new Error('CLI attachment missing bytes')
+  }
+  const ext =
+    attachment.filename && path.extname(attachment.filename)
+      ? path.extname(attachment.filename)
+      : attachment.mediaType
+        ? `.${mime.getExtension(attachment.mediaType) ?? 'bin'}`
+        : '.bin'
+  const filename = attachment.filename?.trim() || `asset${ext}`
+  const dir = await fs.mkdtemp(path.join(tmpdir(), 'summarize-cli-asset-'))
+  const filePath = path.join(dir, filename)
+  await fs.writeFile(filePath, bytes)
+  return filePath
+}
+
 function shouldMarkitdownConvertMediaType(mediaType: string): boolean {
   const mt = mediaType.toLowerCase()
   if (mt === 'application/pdf') return true
@@ -632,6 +712,9 @@ ${heading('Env Vars')}
   OPENROUTER_PROVIDERS  optional (provider fallback order, e.g. "groq,google-vertex")
   GEMINI_API_KEY        optional (required for google/... models)
   ANTHROPIC_API_KEY     optional (required for anthropic/... models)
+  CLAUDE_PATH           optional (path to Claude CLI binary)
+  CODEX_PATH            optional (path to Codex CLI binary)
+  GEMINI_PATH           optional (path to Gemini CLI binary)
   SUMMARIZE_MODEL       optional (overrides default model selection)
   FIRECRAWL_API_KEY     optional website extraction fallback (Markdown)
   APIFY_API_TOKEN       optional YouTube transcript fallback
@@ -1021,6 +1104,7 @@ export async function runCli(
   const anthropicConfigured = typeof anthropicApiKey === 'string' && anthropicApiKey.length > 0
   const openrouterConfigured = typeof openrouterApiKey === 'string' && openrouterApiKey.length > 0
   const openrouterOptions = openRouterProviders ? { providers: openRouterProviders } : undefined
+  const cliAvailability = resolveCliAvailability({ env, config })
 
   if (markdownModeExplicitlySet && format !== 'markdown') {
     throw new Error('--markdown-mode is only supported with --format md')
@@ -1194,11 +1278,9 @@ export async function runCli(
 
   const fixedModelSpec: FixedModelSpec | null =
     requestedModel.kind === 'fixed'
-      ? {
-          ...requestedModel,
-          openrouterProviders:
-            requestedModel.transport === 'openrouter' ? openRouterProviders : null,
-        }
+      ? requestedModel.transport === 'openrouter'
+        ? { ...requestedModel, openrouterProviders: openRouterProviders }
+        : requestedModel
       : null
 
   const desiredOutputTokens = (() => {
@@ -1216,8 +1298,9 @@ export async function runCli(
   })()
 
   type ModelAttempt = {
+    transport: 'native' | 'openrouter' | 'cli'
     userModelId: string
-    llmModelId: string
+    llmModelId: string | null
     openrouterProviders: string[] | null
     forceOpenRouter: boolean
     requiredEnv:
@@ -1226,9 +1309,28 @@ export async function runCli(
       | 'GEMINI_API_KEY'
       | 'ANTHROPIC_API_KEY'
       | 'OPENROUTER_API_KEY'
+      | 'CLI_CLAUDE'
+      | 'CLI_CODEX'
+      | 'CLI_GEMINI'
+    cliProvider?: CliProvider
+    cliModel?: string | null
+  }
+
+  type ModelMeta = {
+    provider: 'xai' | 'openai' | 'google' | 'anthropic' | 'cli'
+    canonical: string
   }
 
   const envHasKeyFor = (requiredEnv: ModelAttempt['requiredEnv']) => {
+    if (requiredEnv === 'CLI_CLAUDE') {
+      return Boolean(cliAvailability.claude)
+    }
+    if (requiredEnv === 'CLI_CODEX') {
+      return Boolean(cliAvailability.codex)
+    }
+    if (requiredEnv === 'CLI_GEMINI') {
+      return Boolean(cliAvailability.gemini)
+    }
     if (requiredEnv === 'GEMINI_API_KEY') {
       return googleConfigured
     }
@@ -1244,24 +1346,77 @@ export async function runCli(
     return Boolean(anthropicApiKey)
   }
 
+  const formatMissingModelError = (attempt: ModelAttempt): string => {
+    if (attempt.requiredEnv === 'CLI_CLAUDE') {
+      return `Claude CLI not found for model ${attempt.userModelId}. Install Claude CLI or set CLAUDE_PATH.`
+    }
+    if (attempt.requiredEnv === 'CLI_CODEX') {
+      return `Codex CLI not found for model ${attempt.userModelId}. Install Codex CLI or set CODEX_PATH.`
+    }
+    if (attempt.requiredEnv === 'CLI_GEMINI') {
+      return `Gemini CLI not found for model ${attempt.userModelId}. Install Gemini CLI or set GEMINI_PATH.`
+    }
+    return `Missing ${attempt.requiredEnv} for model ${attempt.userModelId}. Set the env var or choose a different --model.`
+  }
+
   const runSummaryAttempt = async ({
     attempt,
     prompt,
     allowStreaming,
     onModelChosen,
+    cli,
   }: {
     attempt: ModelAttempt
     prompt: string | ModelMessage[]
     allowStreaming: boolean
     onModelChosen?: ((modelId: string) => void) | null
+    cli?: {
+      promptOverride?: string
+      allowTools?: boolean
+      cwd?: string
+      extraArgsByProvider?: Partial<Record<CliProvider, string[]>>
+    } | null
   }): Promise<{
     summary: string
     summaryAlreadyPrinted: boolean
-    parsedModelEffective: ReturnType<typeof parseGatewayStyleModelId>
+    modelMeta: ModelMeta
     maxOutputTokensForCall: number | null
   }> => {
     onModelChosen?.(attempt.userModelId)
 
+    if (attempt.transport === 'cli') {
+      const cliPrompt = typeof prompt === 'string' ? prompt : (cli?.promptOverride ?? null)
+      if (!cliPrompt) {
+        throw new Error('CLI models require a text prompt (no binary attachments).')
+      }
+      if (!attempt.cliProvider) {
+        throw new Error(`Missing CLI provider for model ${attempt.userModelId}.`)
+      }
+      const result = await runCliModel({
+        provider: attempt.cliProvider,
+        prompt: cliPrompt,
+        model: attempt.cliModel ?? null,
+        allowTools: Boolean(cli?.allowTools),
+        timeoutMs,
+        env,
+        execFileImpl,
+        config: config?.cli ?? null,
+        cwd: cli?.cwd,
+        extraArgs: cli?.extraArgsByProvider?.[attempt.cliProvider],
+      })
+      const summary = result.text.trim()
+      if (!summary) throw new Error('CLI returned an empty summary')
+      return {
+        summary,
+        summaryAlreadyPrinted: false,
+        modelMeta: { provider: 'cli', canonical: attempt.userModelId },
+        maxOutputTokensForCall: null,
+      }
+    }
+
+    if (!attempt.llmModelId) {
+      throw new Error(`Missing model id for ${attempt.userModelId}.`)
+    }
     const parsedModel = parseGatewayStyleModelId(attempt.llmModelId)
     const apiKeysForLlm = {
       xaiApiKey,
@@ -1335,7 +1490,10 @@ export async function runCli(
       return {
         summary,
         summaryAlreadyPrinted: false,
-        parsedModelEffective,
+        modelMeta: {
+          provider: parsedModelEffective.provider,
+          canonical: parsedModelEffective.canonical,
+        },
         maxOutputTokensForCall: maxOutputTokensForCall ?? null,
       }
     }
@@ -1518,7 +1676,10 @@ export async function runCli(
     return {
       summary,
       summaryAlreadyPrinted,
-      parsedModelEffective,
+      modelMeta: {
+        provider: parsedModelEffective.provider,
+        canonical: parsedModelEffective.canonical,
+      },
       maxOutputTokensForCall: maxOutputTokensForCall ?? null,
     }
   }
@@ -1625,7 +1786,12 @@ export async function runCli(
       promptPayload = buildMarkitdownPromptPayload(preprocessedMarkdown)
     }
 
-    if (!usingPreprocessedMarkdown && fixedModelSpec && preprocessMode !== 'off') {
+    if (
+      !usingPreprocessedMarkdown &&
+      fixedModelSpec &&
+      fixedModelSpec.transport !== 'cli' &&
+      preprocessMode !== 'off'
+    ) {
       const fixedParsed = parseGatewayStyleModelId(fixedModelSpec.llmModelId)
       try {
         assertProviderSupportsAttachment({
@@ -1774,8 +1940,16 @@ export async function runCli(
           config,
           catalog,
           openrouterProvidersFromEnv: openRouterProviders,
+          cliAvailability,
         })
-        const filtered = all.filter((a) => {
+        const mapped: ModelAttempt[] = all.map((attempt) => {
+          if (attempt.transport !== 'cli') return attempt as ModelAttempt
+          const parsed = parseCliUserModelId(attempt.userModelId)
+          return { ...attempt, cliProvider: parsed.provider, cliModel: parsed.model }
+        })
+        const filtered = mapped.filter((a) => {
+          if (a.transport === 'cli') return true
+          if (!a.llmModelId) return false
           const parsed = parseGatewayStyleModelId(a.llmModelId)
           if (
             parsed.provider === 'xai' &&
@@ -1791,8 +1965,23 @@ export async function runCli(
       if (!fixedModelSpec) {
         throw new Error('Internal error: missing fixed model spec')
       }
+      if (fixedModelSpec.transport === 'cli') {
+        return [
+          {
+            transport: 'cli',
+            userModelId: fixedModelSpec.userModelId,
+            llmModelId: null,
+            cliProvider: fixedModelSpec.cliProvider,
+            cliModel: fixedModelSpec.cliModel,
+            openrouterProviders: null,
+            forceOpenRouter: false,
+            requiredEnv: fixedModelSpec.requiredEnv,
+          },
+        ]
+      }
       return [
         {
+          transport: fixedModelSpec.transport === 'openrouter' ? 'openrouter' : 'native',
           userModelId: fixedModelSpec.userModelId,
           llmModelId: fixedModelSpec.llmModelId,
           openrouterProviders: fixedModelSpec.openrouterProviders,
@@ -1802,10 +1991,35 @@ export async function runCli(
       ]
     })()
 
+    const cliContext = await (async () => {
+      if (!attempts.some((a) => a.transport === 'cli')) return null
+      if (typeof promptPayload === 'string') return null
+      const needsPathPrompt = attachment.part.type === 'image' || attachment.part.type === 'file'
+      if (!needsPathPrompt) return null
+      const filePath = await ensureCliAttachmentPath({ sourceKind, sourceLabel, attachment })
+      const dir = path.dirname(filePath)
+      const extraArgsByProvider: Partial<Record<CliProvider, string[]>> = {
+        gemini: ['--include-directories', dir],
+        codex: attachment.part.type === 'image' ? ['-i', filePath] : undefined,
+      }
+      return {
+        promptOverride: buildPathSummaryPrompt({
+          kindLabel: attachment.part.type === 'image' ? 'image' : 'file',
+          filePath,
+          filename: attachment.filename,
+          mediaType: attachment.mediaType,
+          summaryLength: summaryLengthTarget,
+        }),
+        allowTools: true,
+        cwd: dir,
+        extraArgsByProvider,
+      }
+    })()
+
     let summaryResult: {
       summary: string
       summaryAlreadyPrinted: boolean
-      parsedModelEffective: ReturnType<typeof parseGatewayStyleModelId>
+      modelMeta: ModelMeta
       maxOutputTokensForCall: number | null
     } | null = null
     let usedAttempt: ModelAttempt | null = null
@@ -1823,9 +2037,7 @@ export async function runCli(
           )
           continue
         }
-        throw new Error(
-          `Missing ${attempt.requiredEnv} for model ${attempt.userModelId}. Set the env var or choose a different --model.`
-        )
+        throw new Error(formatMissingModelError(attempt))
       }
 
       try {
@@ -1834,6 +2046,7 @@ export async function runCli(
           prompt: promptPayload,
           allowStreaming: requestedModel.kind === 'fixed',
           onModelChosen: onModelChosen ?? null,
+          cli: cliContext,
         })
         usedAttempt = attempt
         break
@@ -1870,8 +2083,7 @@ export async function runCli(
       throw new Error('No model available for this input')
     }
 
-    const { summary, summaryAlreadyPrinted, parsedModelEffective, maxOutputTokensForCall } =
-      summaryResult
+    const { summary, summaryAlreadyPrinted, modelMeta, maxOutputTokensForCall } = summaryResult
 
     const extracted = {
       kind: 'asset' as const,
@@ -1920,7 +2132,7 @@ export async function runCli(
         extracted,
         prompt: promptText,
         llm: {
-          provider: parsedModelEffective.provider,
+          provider: modelMeta.provider,
           model: usedAttempt.userModelId,
           maxCompletionTokens: maxOutputTokensForCall,
           strategy: 'single',
@@ -2943,19 +3155,39 @@ export async function runCli(
           config,
           catalog,
           openrouterProvidersFromEnv: openRouterProviders,
+          cliAvailability,
         })
         if (verbose) {
           for (const a of list.slice(0, 8)) {
             writeVerbose(stderr, verbose, `auto candidate ${a.debug}`, verboseColor)
           }
         }
-        return list
+        return list.map((attempt) => {
+          if (attempt.transport !== 'cli') return attempt as ModelAttempt
+          const parsed = parseCliUserModelId(attempt.userModelId)
+          return { ...attempt, cliProvider: parsed.provider, cliModel: parsed.model }
+        })
       }
       if (!fixedModelSpec) {
         throw new Error('Internal error: missing fixed model spec')
       }
+      if (fixedModelSpec.transport === 'cli') {
+        return [
+          {
+            transport: 'cli',
+            userModelId: fixedModelSpec.userModelId,
+            llmModelId: null,
+            cliProvider: fixedModelSpec.cliProvider,
+            cliModel: fixedModelSpec.cliModel,
+            openrouterProviders: null,
+            forceOpenRouter: false,
+            requiredEnv: fixedModelSpec.requiredEnv,
+          },
+        ]
+      }
       return [
         {
+          transport: fixedModelSpec.transport === 'openrouter' ? 'openrouter' : 'native',
           userModelId: fixedModelSpec.userModelId,
           llmModelId: fixedModelSpec.llmModelId,
           openrouterProviders: fixedModelSpec.openrouterProviders,
@@ -2975,7 +3207,7 @@ export async function runCli(
     let summaryResult: {
       summary: string
       summaryAlreadyPrinted: boolean
-      parsedModelEffective: ReturnType<typeof parseGatewayStyleModelId>
+      modelMeta: ModelMeta
       maxOutputTokensForCall: number | null
     } | null = null
     let usedAttempt: ModelAttempt | null = null
@@ -2993,9 +3225,7 @@ export async function runCli(
           )
           continue
         }
-        throw new Error(
-          `Missing ${attempt.requiredEnv} for model ${attempt.userModelId}. Set the env var or choose a different --model.`
-        )
+        throw new Error(formatMissingModelError(attempt))
       }
 
       try {
@@ -3068,8 +3298,7 @@ export async function runCli(
       return
     }
 
-    const { summary, summaryAlreadyPrinted, parsedModelEffective, maxOutputTokensForCall } =
-      summaryResult
+    const { summary, summaryAlreadyPrinted, modelMeta, maxOutputTokensForCall } = summaryResult
 
     if (json) {
       const finishReport = shouldComputeReport ? await buildReport() : null
@@ -3100,7 +3329,7 @@ export async function runCli(
         extracted,
         prompt,
         llm: {
-          provider: parsedModelEffective.provider,
+          provider: modelMeta.provider,
           model: usedAttempt.userModelId,
           maxCompletionTokens: maxOutputTokensForCall,
           strategy: 'single',
@@ -3151,7 +3380,7 @@ export async function runCli(
       writeFinishLine({
         stderr,
         elapsedMs: Date.now() - runStartedAtMs,
-        model: parsedModelEffective.canonical,
+        model: modelMeta.canonical,
         report,
         costUsd,
         color: verboseColor,

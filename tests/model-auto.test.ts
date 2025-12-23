@@ -238,4 +238,44 @@ describe('auto model selection', () => {
     })
     expect(attemptsText[0]?.userModelId).toBe('openai/gpt-5-mini')
   })
+
+  it('prepends default CLI candidates when available', () => {
+    const attempts = buildAutoModelAttempts({
+      mode: 'auto',
+      kind: 'text',
+      promptTokens: 100,
+      desiredOutputTokens: 50,
+      requiresVideoUnderstanding: false,
+      env: {},
+      config: null,
+      catalog: null,
+      openrouterProvidersFromEnv: null,
+      cliAvailability: { claude: true, codex: true, gemini: true },
+    })
+
+    expect(attempts[0]?.userModelId).toBe('cli/codex/gpt-5.2')
+    expect(attempts[1]?.userModelId).toBe('cli/claude/sonnet')
+    expect(attempts[2]?.userModelId).toBe('cli/gemini/gemini-3-flash-preview')
+  })
+
+  it('can disable CLI prepending via config', () => {
+    const config: SummarizeConfig = {
+      cli: { prefer: false },
+      model: { mode: 'auto', rules: [{ candidates: ['openai/gpt-5-mini'] }] },
+    }
+    const attempts = buildAutoModelAttempts({
+      mode: 'auto',
+      kind: 'text',
+      promptTokens: 100,
+      desiredOutputTokens: 50,
+      requiresVideoUnderstanding: false,
+      env: {},
+      config,
+      catalog: null,
+      openrouterProvidersFromEnv: null,
+      cliAvailability: { claude: true },
+    })
+
+    expect(attempts[0]?.userModelId).toBe('openai/gpt-5-mini')
+  })
 })

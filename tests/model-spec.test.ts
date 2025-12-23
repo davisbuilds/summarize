@@ -7,4 +7,12 @@ describe('model spec parsing', () => {
     expect(parseRequestedModelId('free').kind).toBe('free')
     expect(parseRequestedModelId('3').kind).toBe('free')
   })
+
+  it('parses cli model ids', () => {
+    const parsed = parseRequestedModelId('cli/claude/sonnet')
+    expect(parsed.kind).toBe('fixed')
+    expect(parsed.transport).toBe('cli')
+    expect(parsed.cliProvider).toBe('claude')
+    expect(parsed.cliModel).toBe('sonnet')
+  })
 })

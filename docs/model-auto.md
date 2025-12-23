@@ -10,6 +10,7 @@ This is also the built-in default when you don’t specify a model.
 - Skips attempts that don’t have the required API key configured.
 - On any request error, tries the next attempt.
 - If no model is usable, prints the extracted text (no LLM summary).
+- If CLI tools are available, auto mode prepends CLI attempts unless disabled (see `docs/cli.md`).
 
 ## “No model needed” shortcut
 

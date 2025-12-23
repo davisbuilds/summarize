@@ -1,6 +1,7 @@
 # LLM / summarization mode
 
-By default `summarize` will call an LLM using **direct provider API keys**.
+By default `summarize` will call an LLM using **direct provider API keys**. When CLI tools are
+installed, auto mode can prefer local CLI models (see `docs/cli.md`).
 
 ## Defaults
 
@@ -18,11 +19,15 @@ By default `summarize` will call an LLM using **direct provider API keys**.
 - `GEMINI_API_KEY` (required for `google/...` models; also accepts `GOOGLE_GENERATIVE_AI_API_KEY` / `GOOGLE_API_KEY`)
 - `ANTHROPIC_API_KEY` (required for `anthropic/...` models)
 - `SUMMARIZE_MODEL` (optional; overrides default model selection)
+- `CLAUDE_PATH` / `CODEX_PATH` / `GEMINI_PATH` (optional; override CLI binary paths)
 
 ## Flags
 
 - `--model <model>`
   - Examples:
+    - `cli/codex/gpt-5.2`
+    - `cli/claude/sonnet`
+    - `cli/gemini/gemini-3-flash-preview`
     - `google/gemini-3-flash-preview`
     - `openai/gpt-5-mini`
     - `xai/grok-4-fast-non-reasoning`

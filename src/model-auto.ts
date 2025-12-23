@@ -1,4 +1,4 @@
-import type { AutoRule, AutoRuleKind, SummarizeConfig } from './config.js'
+import type { AutoRule, AutoRuleKind, CliProvider, SummarizeConfig } from './config.js'
 import { normalizeGatewayStyleModelId, parseGatewayStyleModelId } from './llm/model-id.js'
 import type { LiteLlmCatalog } from './pricing/litellm.js'
 import {
@@ -16,11 +16,13 @@ export type AutoSelectionInput = {
   config: SummarizeConfig | null
   catalog: LiteLlmCatalog | null
   openrouterProvidersFromEnv: string[] | null
+  cliAvailability?: Partial<Record<CliProvider, boolean>>
 }
 
 export type AutoModelAttempt = {
+  transport: 'native' | 'openrouter' | 'cli'
   userModelId: string
-  llmModelId: string
+  llmModelId: string | null
   openrouterProviders: string[] | null
   forceOpenRouter: boolean
   requiredEnv:
@@ -29,6 +31,9 @@ export type AutoModelAttempt = {
     | 'GEMINI_API_KEY'
     | 'ANTHROPIC_API_KEY'
     | 'OPENROUTER_API_KEY'
+    | 'CLI_CLAUDE'
+    | 'CLI_CODEX'
+    | 'CLI_GEMINI'
   debug: string
 }
 
@@ -107,8 +112,43 @@ const DEFAULT_FREE_RULES: AutoRule[] = [
   },
 ]
 
+const DEFAULT_CLI_MODELS: Record<CliProvider, string> = {
+  claude: 'sonnet',
+  codex: 'gpt-5.2',
+  gemini: 'gemini-3-flash-preview',
+}
+
+function isCliProviderEnabled(provider: CliProvider, config: SummarizeConfig | null): boolean {
+  const cli = config?.cli
+  if (!cli) return true
+  if (Array.isArray(cli.disabled) && cli.disabled.includes(provider)) return false
+  const providerConfig =
+    provider === 'claude' ? cli.claude : provider === 'codex' ? cli.codex : cli.gemini
+  if (providerConfig?.enabled === false) return false
+  return true
+}
+
 function isCandidateOpenRouter(modelId: string): boolean {
   return modelId.trim().toLowerCase().startsWith('openrouter/')
+}
+
+function isCandidateCli(modelId: string): boolean {
+  return modelId.trim().toLowerCase().startsWith('cli/')
+}
+
+function parseCliCandidate(
+  modelId: string
+): { provider: CliProvider; model: string | null } | null {
+  if (!isCandidateCli(modelId)) return null
+  const parts = modelId
+    .trim()
+    .split('/')
+    .map((entry) => entry.trim())
+  if (parts.length < 2) return null
+  const provider = parts[1]?.toLowerCase()
+  if (provider !== 'claude' && provider !== 'codex' && provider !== 'gemini') return null
+  const model = parts.slice(2).join('/').trim()
+  return { provider, model: model.length > 0 ? model : null }
 }
 
 function normalizeOpenRouterModelId(raw: string): string | null {
@@ -125,6 +165,15 @@ function isOpenRouterFreeCandidate(modelId: string): boolean {
 }
 
 function requiredEnvForCandidate(modelId: string): AutoModelAttempt['requiredEnv'] {
+  if (isCandidateCli(modelId)) {
+    const parsed = parseCliCandidate(modelId)
+    if (!parsed) return 'CLI_CLAUDE'
+    return parsed.provider === 'codex'
+      ? 'CLI_CODEX'
+      : parsed.provider === 'gemini'
+        ? 'CLI_GEMINI'
+        : 'CLI_CLAUDE'
+  }
   if (isCandidateOpenRouter(modelId)) return 'OPENROUTER_API_KEY'
   const parsed = parseGatewayStyleModelId(normalizeGatewayStyleModelId(modelId))
   return parsed.provider === 'xai'
@@ -216,6 +265,30 @@ function resolveRuleCandidates({
   return fallback?.candidates ?? []
 }
 
+function prependCliCandidates({
+  candidates,
+  config,
+}: {
+  candidates: string[]
+  config: SummarizeConfig | null
+}): string[] {
+  const cli = config?.cli
+  if (cli?.prefer === false) return candidates
+  const cliCandidates: string[] = []
+  const add = (provider: CliProvider, modelOverride?: string) => {
+    if (!isCliProviderEnabled(provider, config)) return
+    const model = modelOverride?.trim() || DEFAULT_CLI_MODELS[provider]
+    if (!model) return
+    const id = `cli/${provider}/${model}`
+    if (!cliCandidates.includes(id)) cliCandidates.push(id)
+  }
+  add('codex', cli?.codex?.model)
+  add('claude', cli?.claude?.model)
+  add('gemini', cli?.gemini?.model)
+  if (cliCandidates.length === 0) return candidates
+  return [...cliCandidates, ...candidates]
+}
+
 function estimateCostUsd({
   pricing,
   promptTokens,
@@ -250,12 +323,16 @@ function isVideoUnderstandingCapable(modelId: string): boolean {
 }
 
 export function buildAutoModelAttempts(input: AutoSelectionInput): AutoModelAttempt[] {
-  const candidates = resolveRuleCandidates({
+  const baseCandidates = resolveRuleCandidates({
     mode: input.mode,
     kind: input.kind,
     promptTokens: input.promptTokens,
     config: input.config,
   })
+  const candidates =
+    input.mode === 'free'
+      ? baseCandidates
+      : prependCliCandidates({ candidates: baseCandidates, config: input.config })
 
   const attempts: AutoModelAttempt[] = []
   for (const modelRawEntry of candidates) {
@@ -266,31 +343,41 @@ export function buildAutoModelAttempts(input: AutoSelectionInput): AutoModelAtte
       continue
     }
 
+    const explicitCli = isCandidateCli(modelRaw)
     const explicitOpenRouter = isCandidateOpenRouter(modelRaw)
 
     const shouldSkipForVideo =
       input.requiresVideoUnderstanding &&
-      (explicitOpenRouter || !isVideoUnderstandingCapable(modelRaw))
+      (explicitOpenRouter || explicitCli || !isVideoUnderstandingCapable(modelRaw))
     if (shouldSkipForVideo) {
       continue
     }
 
     const addAttempt = (
       modelId: string,
-      options: { openrouter: boolean; openrouterProviders: string[] | null }
+      options: {
+        openrouter: boolean
+        openrouterProviders: string[] | null
+        transport: AutoModelAttempt['transport']
+      }
     ) => {
       const required = requiredEnvForCandidate(modelId)
-      const hasKey = envHasKey(input.env, required)
+      const hasKey =
+        options.transport === 'cli'
+          ? Boolean(
+              input.cliAvailability?.[parseCliCandidate(modelId)?.provider ?? 'claude'] ?? false
+            )
+          : envHasKey(input.env, required)
+      if (options.transport === 'cli' && !hasKey) {
+        return
+      }
 
-      const catalog = input.catalog
-      const maxIn = catalog
-        ? resolveLiteLlmMaxInputTokensForModelId(
-            catalog,
-            options.openrouter ? modelId.slice('openrouter/'.length) : modelId
-          )
-        : null
+      const catalog = options.transport === 'cli' ? null : input.catalog
+      const catalogModelId = options.openrouter ? modelId.slice('openrouter/'.length) : modelId
+      const maxIn = catalog ? resolveLiteLlmMaxInputTokensForModelId(catalog, catalogModelId) : null
       const promptTokens = input.promptTokens
       if (
+        options.transport !== 'cli' &&
         typeof promptTokens === 'number' &&
         Number.isFinite(promptTokens) &&
         typeof maxIn === 'number' &&
@@ -301,30 +388,40 @@ export function buildAutoModelAttempts(input: AutoSelectionInput): AutoModelAtte
         return
       }
 
-      const pricing = catalog
-        ? resolveLiteLlmPricingForModelId(
-            catalog,
-            options.openrouter ? modelId.slice('openrouter/'.length) : modelId
-          )
-        : null
+      const pricing = catalog ? resolveLiteLlmPricingForModelId(catalog, catalogModelId) : null
       const estimated = estimateCostUsd({
         pricing,
         promptTokens: input.promptTokens,
         outputTokens: input.desiredOutputTokens,
       })
 
-      const userModelId = options.openrouter ? modelId : normalizeGatewayStyleModelId(modelId)
+      const userModelId =
+        options.transport === 'cli'
+          ? modelId
+          : options.openrouter
+            ? modelId
+            : normalizeGatewayStyleModelId(modelId)
       const openrouterModelId = options.openrouter
         ? normalizeOpenRouterModelId(modelId.slice('openrouter/'.length))
         : null
       if (options.openrouter && !openrouterModelId) {
         return
       }
-      const llmModelId = options.openrouter
-        ? `openai/${openrouterModelId}`
-        : normalizeGatewayStyleModelId(modelId)
+      const llmModelId =
+        options.transport === 'cli'
+          ? null
+          : options.openrouter
+            ? `openai/${openrouterModelId}`
+            : normalizeGatewayStyleModelId(modelId)
       const debugParts = [
-        `model=${options.openrouter ? `openrouter/${openrouterModelId}` : userModelId}`,
+        `model=${
+          options.transport === 'cli'
+            ? userModelId
+            : options.openrouter
+              ? `openrouter/${openrouterModelId}`
+              : userModelId
+        }`,
+        `transport=${options.transport}`,
         `order=${attempts.length + 1}`,
         `key=${hasKey ? 'yes' : 'no'}(${required})`,
         `promptTok=${typeof input.promptTokens === 'number' ? input.promptTokens : 'unknown'}`,
@@ -333,6 +430,7 @@ export function buildAutoModelAttempts(input: AutoSelectionInput): AutoModelAtte
       ]
 
       attempts.push({
+        transport: options.transport,
         userModelId: options.openrouter ? `openrouter/${openrouterModelId}` : userModelId,
         llmModelId,
         openrouterProviders: options.openrouterProviders,
@@ -342,10 +440,20 @@ export function buildAutoModelAttempts(input: AutoSelectionInput): AutoModelAtte
       })
     }
 
+    if (explicitCli) {
+      addAttempt(modelRaw, {
+        openrouter: false,
+        openrouterProviders: null,
+        transport: 'cli',
+      })
+      continue
+    }
+
     if (explicitOpenRouter) {
       addAttempt(modelRaw, {
         openrouter: true,
         openrouterProviders: input.openrouterProvidersFromEnv,
+        transport: 'openrouter',
       })
       continue
     }
@@ -357,6 +465,7 @@ export function buildAutoModelAttempts(input: AutoSelectionInput): AutoModelAtte
     addAttempt(modelRaw, {
       openrouter: false,
       openrouterProviders: input.openrouterProvidersFromEnv,
+      transport: 'native',
     })
 
     const canAddOpenRouterFallback =
@@ -366,6 +475,7 @@ export function buildAutoModelAttempts(input: AutoSelectionInput): AutoModelAtte
       addAttempt(`openrouter/${slug}`, {
         openrouter: true,
         openrouterProviders: input.openrouterProvidersFromEnv,
+        transport: 'openrouter',
       })
     }
   }
@@ -373,7 +483,7 @@ export function buildAutoModelAttempts(input: AutoSelectionInput): AutoModelAtte
   const seen = new Set<string>()
   const unique: AutoModelAttempt[] = []
   for (const a of attempts) {
-    const key = `${a.forceOpenRouter ? 'or' : 'native'}:${a.userModelId}:${a.openrouterProviders?.join(',') ?? ''}`
+    const key = `${a.transport}:${a.forceOpenRouter ? 'or' : 'native'}:${a.userModelId}:${a.openrouterProviders?.join(',') ?? ''}`
     if (seen.has(key)) continue
     seen.add(key)
     unique.push(a)
