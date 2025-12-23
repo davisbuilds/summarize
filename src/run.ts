@@ -45,7 +45,7 @@ import { parseGatewayStyleModelId } from './llm/model-id.js'
 import { convertToMarkdownWithMarkitdown, type ExecFileFn } from './markitdown.js'
 import { buildAutoModelAttempts } from './model-auto.js'
 import { type FixedModelSpec, parseRequestedModelId, type RequestedModel } from './model-spec.js'
-import { generateFree } from './generate-free.js'
+import { refreshFree } from './refresh-free.js'
 import {
   loadLiteLlmCatalog,
   resolveLiteLlmMaxInputTokensForModelId,
@@ -1178,9 +1178,6 @@ export async function runCli(
   ;(globalThis as unknown as { AI_SDK_LOG_WARNINGS?: boolean }).AI_SDK_LOG_WARNINGS = false
 
   const normalizedArgv = argv.filter((arg) => arg !== '--')
-  if (normalizedArgv[0]?.toLowerCase() === 'generate-free') {
-    throw new Error('Unknown command "generate-free". Use "summarize refresh-free".')
-  }
   if (normalizedArgv[0]?.toLowerCase() === 'refresh-free') {
     const verbose = normalizedArgv.includes('--verbose') || normalizedArgv.includes('--debug')
     const help =
@@ -1201,7 +1198,7 @@ export async function runCli(
     const runsRaw = readArgValue('--runs')
     const smartRaw = readArgValue('--smart')
     const minParamsRaw = readArgValue('--min-params')
-    const runs = runsRaw ? Number(runsRaw) : 3
+    const runs = runsRaw ? Number(runsRaw) : 2
     const smart = smartRaw ? Number(smartRaw) : 3
     const minParams = (() => {
       if (!minParamsRaw) return 27
@@ -1214,7 +1211,7 @@ export async function runCli(
     if (help) {
       stdout.write(
         [
-          'Usage: summarizer refresh-free [--runs 3] [--smart 3] [--min-params 27b] [--verbose]',
+          'Usage: summarizer refresh-free [--runs 2] [--smart 3] [--min-params 27b] [--verbose]',
           '',
           'Writes ~/.summarize/config.json (models.free) with working OpenRouter :free candidates.',
         ].join('\n') + '\n'
@@ -1222,12 +1219,12 @@ export async function runCli(
       return
     }
 
-    if (!Number.isFinite(runs) || runs <= 0) throw new Error('--runs must be a positive number')
+    if (!Number.isFinite(runs) || runs < 0) throw new Error('--runs must be >= 0')
     if (!Number.isFinite(smart) || smart < 0) throw new Error('--smart must be >= 0')
     if (!Number.isFinite(minParams) || minParams < 0)
       throw new Error('--min-params must be >= 0 (e.g. 27b)')
 
-    await generateFree({
+    await refreshFree({
       env,
       fetchImpl: fetch,
       stdout,

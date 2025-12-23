@@ -175,7 +175,7 @@ async function mapWithConcurrency<T, R>(
   return results
 }
 
-export async function generateFree({
+export async function refreshFree({
   env,
   fetchImpl,
   stdout,
@@ -195,6 +195,7 @@ export async function generateFree({
   const failLabel = (text: string) => ansi('1;31', text, color)
   const dim = (text: string) => ansi('2', text, color)
   const heading = (text: string) => ansi('1;36', text, color)
+  const cmdName = heading('Refresh Free')
 
   const openrouterKey =
     typeof env.OPENROUTER_API_KEY === 'string' && env.OPENROUTER_API_KEY.trim().length > 0
@@ -205,7 +206,7 @@ export async function generateFree({
   }
 
   const resolved: GenerateFreeOptions = {
-    runs: 3,
+    runs: 2,
     smart: 3,
     maxCandidates: 10,
     concurrency: 4,
@@ -213,14 +214,15 @@ export async function generateFree({
     minParamB: 27,
     ...options,
   }
-  const RUNS = Math.max(1, Math.floor(resolved.runs))
+  const EXTRA_RUNS = Math.max(0, Math.floor(resolved.runs))
+  const TOTAL_RUNS = 1 + EXTRA_RUNS
   const SMART = Math.max(0, Math.floor(resolved.smart))
   const MAX_CANDIDATES = Math.max(1, Math.floor(resolved.maxCandidates))
   const CONCURRENCY = Math.max(1, Math.floor(resolved.concurrency))
   const TIMEOUT_MS = Math.max(1, Math.floor(resolved.timeoutMs))
   const MIN_PARAM_B = Math.max(0, Math.floor(resolved.minParamB))
 
-  stderr.write(`${heading('OpenRouter')}: fetching models…\n`)
+  stderr.write(`${cmdName}: fetching OpenRouter models…\n`)
   const response = await fetchImpl('https://openrouter.ai/api/v1/models', {
     headers: { Accept: 'application/json' },
   })
@@ -291,7 +293,7 @@ export async function generateFree({
   const filteredCount = freeModelsAll.length - freeModels.length
   if (filteredCount > 0) {
     stderr.write(
-      `${heading('OpenRouter')}: filtered ${filteredCount}/${freeModelsAll.length} small models (<${MIN_PARAM_B}B)\n`
+      `${cmdName}: filtered ${filteredCount}/${freeModelsAll.length} small models (<${MIN_PARAM_B}B)\n`
     )
     if (verbose) {
       const filteredIds = freeModelsAll
@@ -320,7 +322,7 @@ export async function generateFree({
   const freeIds = smartSorted.map((m) => m.id)
 
   stderr.write(
-    `${heading('OpenRouter')}: found ${freeIds.length} :free models; testing (runs=${RUNS}, concurrency=${CONCURRENCY}, timeout=${formatMs(TIMEOUT_MS)})…\n`
+    `${cmdName}: found ${freeIds.length} :free models; testing (runs=${TOTAL_RUNS}, concurrency=${CONCURRENCY}, timeout=${formatMs(TIMEOUT_MS)})…\n`
   )
 
   const apiKeys: LlmApiKeys = {
@@ -374,7 +376,7 @@ export async function generateFree({
     if (now - lastProgressPrint < everyMs) return
     lastProgressPrint = now
     const elapsedSec = Math.round((now - startedAt) / 100) / 10
-    const line = `OpenRouter: ${label} ${done}/${freeIds.length}, ok=${okCount} (elapsed ${elapsedSec}s)…`
+    const line = `Refresh Free: ${label} ${done}/${freeIds.length}, ok=${okCount} (elapsed ${elapsedSec}s)…`
     if (isTty) {
       stderr.write(`\x1b[2K\r${line}`)
     } else {
@@ -543,7 +545,7 @@ export async function generateFree({
         .filter(([, v]) => v > 0)
         .map(([k, v]) => `${k}=${v}`),
     ]
-    stderr.write(`${heading('OpenRouter')}: results ${parts.join(' ')}\n`)
+    stderr.write(`${cmdName}: results ${parts.join(' ')}\n`)
     if (failureCounts.rateLimitMin > 0) {
       stderr.write(
         `${dim('Note: OpenRouter free-model rate limits were hit; retrying later may find more working models.')}\n`
@@ -603,9 +605,9 @@ export async function generateFree({
 
   // Pass 2: refine timing for selected candidates only (RUNS total)
   const refined = ok.slice()
-  if (RUNS > 1 && selectedIdsInitial.length > 0) {
+  if (EXTRA_RUNS > 0 && selectedIdsInitial.length > 0) {
     stderr.write(
-      `${heading('OpenRouter')}: refining ${selectedIdsInitial.length} candidates (runs=${RUNS})…\n`
+      `${cmdName}: refining ${selectedIdsInitial.length} candidates (extra runs=${EXTRA_RUNS})…\n`
     )
     const byId = new Map(refined.map((m) => [m.openrouterModelId, m] as const))
     for (const openrouterModelId of selectedIdsInitial) {
@@ -615,7 +617,7 @@ export async function generateFree({
       let successCountForModel = entry.successCount
       let lastError: unknown = null
 
-      for (let run = 1; run < RUNS; run += 1) {
+      for (let run = 0; run < EXTRA_RUNS; run += 1) {
         const runStartedAt = Date.now()
         try {
           await generateTextWithModelId({
@@ -655,7 +657,7 @@ export async function generateFree({
     selectedIds.length > 0
       ? selectedIds.map((id) => `openrouter/${id}`)
       : refined.slice(0, MAX_CANDIDATES).map((r) => `openrouter/${r.openrouterModelId}`)
-  stderr.write(`${heading('OpenRouter')}: selected ${selected.length} candidates.\n`)
+  stderr.write(`${cmdName}: selected ${selected.length} candidates.\n`)
 
   const configPath = resolveConfigPath(env)
   let root: Record<string, unknown> = {}

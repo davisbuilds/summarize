@@ -262,7 +262,7 @@ summarize refresh-free
 
 Flags:
 
-- `--runs 3` (default): timing runs per selected model (median/avg)
+- `--runs 2` (default): extra timing runs per selected model (total runs = 1 + runs)
 - `--smart 3` (default): how many “smart-first” picks (rest filled by fastest)
 - `--min-params 27b` (default): ignore models with inferred size smaller than N billion parameters
 
