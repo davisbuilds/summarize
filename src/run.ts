@@ -1220,7 +1220,7 @@ export async function runCli(
       stdout,
       stderr,
       verbose,
-      options: { runs, smart, maxCandidates: 8, concurrency: 4, timeoutMs: 10_000 },
+      options: { runs, smart, maxCandidates: 10, concurrency: 4, timeoutMs: 10_000 },
     })
     return
   }

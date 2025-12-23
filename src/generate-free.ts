@@ -38,6 +38,25 @@ function formatMs(ms: number): string {
   return `${Math.round(ms / 100) / 10}s`
 }
 
+function inferParamBFromIdOrName(text: string): number | null {
+  const raw = text.toLowerCase()
+
+  // Common patterns:
+  // - "...-70b-..." / "...-32b" / "...-8b-..."
+  // - "...-e2b-..." (gemma-3n-e2b)
+  // - "...-1.5b-..."
+  const matches = raw.matchAll(/(?:^|[^a-z0-9])[a-z]?(\d+(?:\.\d+)?)b(?:[^a-z0-9]|$)/g)
+  let best: number | null = null
+  for (const m of matches) {
+    const numRaw = m[1]
+    if (!numRaw) continue
+    const value = Number(numRaw)
+    if (!Number.isFinite(value) || value <= 0) continue
+    if (best === null || value > best) best = value
+  }
+  return best
+}
+
 function assertNoComments(raw: string, path: string): void {
   let inString: '"' | "'" | null = null
   let escaped = false
@@ -115,6 +134,7 @@ type OpenRouterModelEntry = {
   maxCompletionTokens: number | null
   supportedParametersCount: number
   modality: string | null
+  inferredParamB: number | null
 }
 
 async function mapWithConcurrency<T, R>(
@@ -170,7 +190,7 @@ export async function generateFree({
   const resolved: GenerateFreeOptions = {
     runs: 3,
     smart: 3,
-    maxCandidates: 8,
+    maxCandidates: 10,
     concurrency: 4,
     timeoutMs: 10_000,
     ...options,
@@ -180,7 +200,6 @@ export async function generateFree({
   const MAX_CANDIDATES = Math.max(1, Math.floor(resolved.maxCandidates))
   const CONCURRENCY = Math.max(1, Math.floor(resolved.concurrency))
   const TIMEOUT_MS = Math.max(1, Math.floor(resolved.timeoutMs))
-  const TARGET_WORKING = Math.max(MAX_CANDIDATES, MAX_CANDIDATES * 3)
 
   stderr.write(`${heading('OpenRouter')}: fetching models…\n`)
   const response = await fetchImpl('https://openrouter.ai/api/v1/models', {
@@ -198,6 +217,7 @@ export async function generateFree({
       const obj = entry as Record<string, unknown>
       const id = typeof obj.id === 'string' ? obj.id.trim() : ''
       if (!id) return null
+      const name = typeof obj.name === 'string' ? obj.name.trim() : ''
 
       const contextLength =
         typeof obj.context_length === 'number' && Number.isFinite(obj.context_length)
@@ -235,13 +255,26 @@ export async function generateFree({
         maxCompletionTokens,
         supportedParametersCount,
         modality,
+        inferredParamB: inferParamBFromIdOrName(`${id} ${name}`),
       } satisfies OpenRouterModelEntry
     })
     .filter((v): v is OpenRouterModelEntry => Boolean(v))
 
-  const freeModels = catalogModels.filter((m) => m.id.endsWith(':free'))
+  const freeModelsAll = catalogModels.filter((m) => m.id.endsWith(':free'))
+  const MIN_PARAM_B = 7
+  const freeModels = freeModelsAll.filter((m) => {
+    if (m.inferredParamB === null) return true
+    return m.inferredParamB >= MIN_PARAM_B
+  })
   if (freeModels.length === 0) {
     throw new Error('OpenRouter /models returned no :free models')
+  }
+
+  const filteredCount = freeModelsAll.length - freeModels.length
+  if (filteredCount > 0) {
+    stderr.write(
+      `${heading('OpenRouter')}: filtered ${filteredCount}/${freeModelsAll.length} small models (<${MIN_PARAM_B}B)\n`
+    )
   }
 
   const smartSorted = freeModels
@@ -283,6 +316,7 @@ export async function generateFree({
     maxCompletionTokens: number | null
     supportedParametersCount: number
     modality: string | null
+    inferredParamB: number | null
   }
   type Result = { ok: true; value: Ok } | { ok: false; openrouterModelId: string; error: string }
 
@@ -319,10 +353,9 @@ export async function generateFree({
   const results: Result[] = []
   const idToMeta = new Map(smartSorted.map((m) => [m.id, m] as const))
 
-  // Pass 1: single run per model (avoid OpenRouter free rate limits)
-  for (let i = 0; i < freeIds.length; i += TARGET_WORKING * 5) {
-    const batch = freeIds.slice(i, i + TARGET_WORKING * 5)
-    const batchResults = await mapWithConcurrency(batch, CONCURRENCY, async (openrouterModelId) => {
+  // Pass 1: test all free models once.
+  {
+    const batchResults = await mapWithConcurrency(freeIds, CONCURRENCY, async (openrouterModelId) => {
       const runStartedAt = Date.now()
       try {
         await generateTextWithModelId({
@@ -356,6 +389,7 @@ export async function generateFree({
             maxCompletionTokens: meta?.maxCompletionTokens ?? null,
             supportedParametersCount: meta?.supportedParametersCount ?? 0,
             modality: meta?.modality ?? null,
+            inferredParamB: meta?.inferredParamB ?? null,
           },
         } satisfies Result
       } catch (error) {
@@ -368,8 +402,6 @@ export async function generateFree({
     })
 
     for (const r of batchResults) results.push(r)
-    const okCountSoFar = results.reduce((n, r) => n + (r.ok ? 1 : 0), 0)
-    if (okCountSoFar >= TARGET_WORKING) break
   }
 
   if (isTty) stderr.write('\n')

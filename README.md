@@ -249,6 +249,7 @@ OpenRouter (OpenAI-compatible):
 Regenerates the `free` preset (writes `models.free` into `~/.summarize/config.json`) by:
 
 - Fetching OpenRouter `/models`, filtering `:free`
+- Skipping models that look very small (<7B) based on the model id/name (best-effort heuristic)
 - Testing which ones return non-empty text (concurrency 4, timeout 10s)
 - Picking a mix of “smart-ish” (bigger `context_length` / output cap) and fast models
 - Refining timings for the final selection and writing the sorted list back
