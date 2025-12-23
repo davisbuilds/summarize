@@ -1037,6 +1037,7 @@ function writeFinishLine({
   model,
   report,
   costUsd,
+  extraParts,
   color,
 }: {
   stderr: NodeJS.WritableStream
@@ -1044,6 +1045,7 @@ function writeFinishLine({
   model: string
   report: ReturnType<typeof buildRunMetricsReport>
   costUsd: number | null
+  extraParts?: string[] | null
   color: boolean
 }): void {
   const promptTokens = sumNumbersOrNull(report.llm.map((row) => row.promptTokens))
@@ -1062,6 +1064,9 @@ function writeFinishLine({
   if (tokPart) {
     parts.push(tokPart)
   }
+  if (extraParts && extraParts.length > 0) {
+    parts.push(...extraParts)
+  }
 
   if (report.services.firecrawl.requests > 0) {
     parts.push(`firecrawl=${report.services.firecrawl.requests}`)
@@ -1073,6 +1078,52 @@ function writeFinishLine({
   const line = `Finished in ${formatElapsedMs(elapsedMs)} (${parts.join(' | ')})`
   stderr.write('\n')
   stderr.write(`${ansi('1;32', line, color)}\n`)
+}
+
+function formatCompactCount(value: number): string {
+  if (!Number.isFinite(value)) return 'unknown'
+  const abs = Math.abs(value)
+  const format = (n: number, suffix: string) => {
+    const decimals = n >= 10 ? 0 : 1
+    return `${n.toFixed(decimals)}${suffix}`
+  }
+  if (abs >= 1_000_000_000) return format(value / 1_000_000_000, 'B')
+  if (abs >= 1_000_000) return format(value / 1_000_000, 'M')
+  if (abs >= 10_000) return format(value / 1_000, 'k')
+  if (abs >= 1_000) return `${(value / 1_000).toFixed(1)}k`
+  return String(Math.floor(value))
+}
+
+function buildDetailedLengthPartsForExtracted(extracted: {
+  url: string
+  siteName: string | null
+  totalCharacters: number
+  wordCount: number
+  transcriptCharacters: number | null
+  transcriptLines: number | null
+}): string[] {
+  const parts: string[] = []
+
+  const isYouTube =
+    extracted.siteName === 'YouTube' || /youtube\.com|youtu\.be/i.test(extracted.url)
+  if (!isYouTube && !extracted.transcriptCharacters) return parts
+
+  parts.push(
+    `len=${formatCompactCount(extracted.totalCharacters)}ch/${formatCompactCount(extracted.wordCount)}w`
+  )
+
+  if (typeof extracted.transcriptCharacters === 'number' && extracted.transcriptCharacters > 0) {
+    const wordEstimate = Math.max(0, Math.round(extracted.transcriptCharacters / 6))
+    const minutesEstimate = Math.max(1, Math.round(wordEstimate / 160))
+    const trParts: string[] = [`tr=${formatCompactCount(extracted.transcriptCharacters)}ch`]
+    if (typeof extracted.transcriptLines === 'number' && extracted.transcriptLines > 0) {
+      trParts.push(`${formatCompactCount(extracted.transcriptLines)}ln`)
+    }
+    trParts.push(`~${minutesEstimate}m`)
+    parts.push(trParts.join('/'))
+  }
+
+  return parts
 }
 
 export async function runCli(
@@ -2275,6 +2326,7 @@ export async function runCli(
           model: usedAttempt.userModelId,
           report: finishReport,
           costUsd,
+          extraParts: null,
           color: verboseColor,
         })
       }
@@ -2310,6 +2362,7 @@ export async function runCli(
         model: usedAttempt.userModelId,
         report,
         costUsd,
+        extraParts: null,
         color: verboseColor,
       })
     }
@@ -3096,6 +3149,7 @@ export async function runCli(
             model: requestedModelLabel,
             report: finishReport,
             costUsd,
+            extraParts: metricsDetailed ? buildDetailedLengthPartsForExtracted(extracted) : null,
             color: verboseColor,
           })
         }
@@ -3114,6 +3168,7 @@ export async function runCli(
           model: requestedModelLabel,
           report,
           costUsd,
+          extraParts: metricsDetailed ? buildDetailedLengthPartsForExtracted(extracted) : null,
           color: verboseColor,
         })
       }
@@ -3177,6 +3232,7 @@ export async function runCli(
             model: requestedModelLabel,
             report: finishReport,
             costUsd,
+            extraParts: metricsDetailed ? buildDetailedLengthPartsForExtracted(extracted) : null,
             color: verboseColor,
           })
         }
@@ -3195,6 +3251,7 @@ export async function runCli(
           model: requestedModelLabel,
           report,
           costUsd,
+          extraParts: metricsDetailed ? buildDetailedLengthPartsForExtracted(extracted) : null,
           color: verboseColor,
         })
       }
@@ -3430,6 +3487,7 @@ export async function runCli(
           model: usedAttempt.userModelId,
           report: finishReport,
           costUsd,
+          extraParts: metricsDetailed ? buildDetailedLengthPartsForExtracted(extracted) : null,
           color: verboseColor,
         })
       }
@@ -3463,6 +3521,7 @@ export async function runCli(
         model: modelMeta.canonical,
         report,
         costUsd,
+        extraParts: metricsDetailed ? buildDetailedLengthPartsForExtracted(extracted) : null,
         color: verboseColor,
       })
     }
