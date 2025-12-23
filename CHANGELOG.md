@@ -11,7 +11,9 @@
   - Shows the chosen model in the progress UI.
 - Add `--cli <provider>` flag (equivalent to `--model cli/<provider>`).
 - `--cli` accepts case-insensitive providers and can be used without a provider to enable CLI auto selection.
-- Free-only model selection: `--model free` (alias `--model 3`) uses OpenRouter `:free` models only.
+- Named model presets via config (`~/.summarize/config.json` → `models`), selectable as `--model <preset>`.
+- Built-in preset: `--model free` (OpenRouter `:free` candidates; override via `models.free`).
+- `summarize refresh-free` regenerates `models.free` by scanning OpenRouter `:free` models and testing availability + latency.
 - Website extraction detects video-only pages:
   - YouTube embeds switch to transcript extraction automatically.
   - Direct video URLs can be downloaded + summarized when `--video-mode auto|understand` and a Gemini key is available.
@@ -23,8 +25,9 @@
 - `cli.enabled` is an allowlist for CLI usage.
 - OpenRouter: stop sending extra routing headers.
 - Default summary length is now `xl`.
-- `--model free`: when OpenRouter rejects routing with “No allowed providers”, print the exact provider names to allow.
+- `--model free`: when OpenRouter rejects routing with “No allowed providers”, print the exact provider names to allow and suggest running `summarize refresh-free`.
 - `--max-output-tokens`: when explicitly set, it is also forwarded to OpenRouter calls.
+- `summarize refresh-free`: default extra runs reduced to 2 (total runs = 1 + runs) to reduce rate-limit pressure.
 
 ### Fixes
 
@@ -34,17 +37,18 @@
 - Always summarize YouTube transcripts in auto mode (instead of printing the transcript).
 - Prompting: don’t “pad” beyond input length when asking for longer summaries.
 - `--metrics detailed`: fold metrics into finish line and make labels less cryptic.
+- `summarize refresh-free`: detect OpenRouter free-model rate limits and back off + retry.
 
 ### Docs
 
-- Add documentation for auto model selection and free mode.
+- Add documentation for presets and Refresh Free.
 - Add a manual end-to-end checklist (`docs/manual-tests.md`).
 - Add a quick CLI smoke checklist (`docs/smoketest.md`).
 - Document CLI ordering and model selection behavior.
 
 ### Tests
 
-- Add coverage for auto/free selection, config parsing, and fallback behavior.
+- Add coverage for presets and Refresh Free regeneration.
 - Add regression coverage for YouTube transcript handling and metrics formatting.
 
 ## 0.4.0 - 2025-12-21
