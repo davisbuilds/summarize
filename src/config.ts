@@ -1,5 +1,4 @@
 import { readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import JSON5 from 'json5'
@@ -303,7 +302,7 @@ export function loadSummarizeConfig({ env }: { env: Record<string, string | unde
   config: SummarizeConfig | null
   path: string | null
 } {
-  const home = env.HOME?.trim() || homedir()
+  const home = env.HOME?.trim() || env.USERPROFILE?.trim() || null
   if (!home) return { config: null, path: null }
   const path = join(home, '.summarize', 'config.json')
 
