@@ -1,49 +1,96 @@
 # Releasing `@steipete/summarize` (npm + Homebrew/Bun)
 
-Hard rule: **do not publish, tag, or create GitHub releases without explicit approval**.
-Release is **not done** until the Homebrew tap is bumped and a `brew install` verifies the new version.
+Ship is **not done** until:
+- npm is published
+- GitHub Release has the Bun tarball asset
+- Homebrew tap is bumped + `brew install` verifies
 
 ## Version sources (keep in sync)
 
 - `package.json` `version`
 - `src/version.ts` `FALLBACK_VERSION` (needed for the Bun-compiled binary; it can’t read `package.json`)
 
-## Gates (no warnings)
+## Fast path (recommended)
 
-- `pnpm install`
-- `pnpm check`
-- `pnpm build`
+0) Preflight
+   - Clean git: `git status`
+   - Auth: `gh auth status`, `npm whoami`
+
+1) Bump version + notes
+   - Update version in:
+     - `package.json`
+     - `src/version.ts` (`FALLBACK_VERSION`)
+   - Update `CHANGELOG.md` (set the date + bullet notes under the new version header)
+
+2) Gates (no warnings)
+   - `pnpm -s install`
+   - `pnpm -s check`
+   - `pnpm -s build`
+
+3) Build Bun artifact (prints sha256 + creates tarball)
+   - `pnpm -s build:bun:test`
+   - Artifact: `dist-bun/summarize-macos-arm64-v<ver>.tar.gz`
+
+4) Tag
+   ```bash
+   ver="$(node -p 'require(\"./package.json\").version')"
+   git tag -a "v${ver}" -m "v${ver}"
+   git push --tags
+   ```
+
+5) GitHub Release + asset
+   ```bash
+   ver="$(node -p 'require(\"./package.json\").version')"
+   awk -v ver="$ver" '
+     BEGIN { p=0 }
+     $0 ~ ("^## " ver " ") { p=1; next }
+     /^## / { p=0 }
+     p { print }
+   ' CHANGELOG.md >"/tmp/summarize-v${ver}-notes.md"
+
+   gh release create "v${ver}" "dist-bun/summarize-macos-arm64-v${ver}.tar.gz" \
+     --title "v${ver}" \
+     --notes-file "/tmp/summarize-v${ver}-notes.md"
+   ```
+   - Verify notes render (real newlines): `gh release view v<ver> --json body --jq .body`
+
+6) Homebrew tap bump + verify
+   - Repo: `~/Projects/homebrew-tap`
+   - Update `Formula/summarize.rb`:
+     - `url` → GitHub Release asset URL
+     - `sha256` → from `pnpm build:bun:test`
+     - `version` + test expectation
+   - `git commit -am "chore: bump summarize to <ver>" && git push`
+   - Verify:
+     ```bash
+     brew uninstall summarize || true
+     brew tap steipete/tap || true
+     brew install steipete/tap/summarize
+     summarize --version
+     ```
+
+7) Publish to npm + smoke
+   - If npm asks for OTP:
+     - `npm_config_auth_type=legacy pnpm publish --tag latest --access public --otp <otp>`
+   - Otherwise:
+     - `pnpm publish --tag latest --access public`
+   - Smoke:
+     ```bash
+     ver="$(node -p 'require(\"./package.json\").version')"
+     npm view @steipete/summarize version
+     pnpm -s dlx @steipete/summarize@"${ver}" --version
+     pnpm -s dlx @steipete/summarize@"${ver}" --help >/dev/null
+     ```
 
 ## npm (npmjs)
 
-1) Bump version (both places)
-   - `package.json`
-   - `src/version.ts`
+Notes:
+- npm may prompt for browser auth when `npm config get auth-type` is `web`. For scripted publishes, use `npm_config_auth_type=legacy` + `--otp`.
+- `prepare` runs `pnpm build` automatically during publish.
 
-2) Update notes
-   - `CHANGELOG.md` (product-facing bullets)
+Helper (npm-only): `scripts/release.sh` (phases: `gates|build|publish|smoke|tag|all`).
 
-3) Validate
-   - Gates above
-   - Optional: `npm pack --pack-destination /tmp` (don’t commit the tarball)
-
-4) Publish (when approved)
-   - `pnpm publish --access public`
-   - Verify from a clean temp dir:
-     ```bash
-     rm -rf /tmp/summarize-npx && mkdir /tmp/summarize-npx && cd /tmp/summarize-npx
-     npx -y @steipete/summarize@<ver> --version
-     npx -y @steipete/summarize@<ver> --help
-     ```
-
-5) Tag (when approved)
-   - `git tag -a v<ver> -m v<ver>`
-   - `git push --tags`
-
-Note: helper exists for npm-only flow: `scripts/release.sh` (phases: `gates|build|publish|smoke|tag|all`).
-Prefer running `scripts/release.sh all` so publish + smoke + tag happen in one go (“ship all at once”).
-
-## Homebrew (Bun-compiled binary w/ bytecode)
+## Homebrew (Bun-compiled binary w/ bytecode) - details
 
 Goal:
 - Build a **macOS arm64** Bun binary named `summarize`
