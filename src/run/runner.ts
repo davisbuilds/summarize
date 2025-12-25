@@ -1231,10 +1231,11 @@ export async function runCli(
                   color: supportsColor(stdout, envForRun),
                   hyperlinks: true,
                 }),
-              // markdansi supports maxRows at runtime; typings lag behind.
+              // markdansi supports tailRows/maxRows at runtime; typings lag behind.
+              tailRows: Math.max(12, terminalHeight(stdout, env) - 2),
               maxRows: terminalHeight(stdout, env),
               clearOnOverflow: true,
-              clearScrollbackOnOverflow: true,
+              clearScrollbackOnOverflow: false,
               onOverflow: () => {
                 liveOverflowed = true
               },
