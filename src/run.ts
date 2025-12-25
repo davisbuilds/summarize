@@ -1205,6 +1205,7 @@ function formatModelLabelForDisplay(model: string): string {
 function writeFinishLine({
   stderr,
   elapsedMs,
+  label,
   model,
   report,
   costUsd,
@@ -1214,7 +1215,8 @@ function writeFinishLine({
 }: {
   stderr: NodeJS.WritableStream
   elapsedMs: number
-  model: string
+  label?: string | null
+  model: string | null
   report: ReturnType<typeof buildRunMetricsReport>
   costUsd: number | null
   detailed: boolean
@@ -1246,7 +1248,8 @@ function writeFinishLine({
     formatElapsedMs(elapsedMs),
     compactTranscriptLabel,
     costUsd != null ? formatUSD(costUsd) : null,
-    formatModelLabelForDisplay(model),
+    label ?? null,
+    model ? formatModelLabelForDisplay(model) : null,
     tokensPart,
   ]
   const line1 = summaryParts.filter((part): part is string => typeof part === 'string').join(' · ')
@@ -1779,6 +1782,23 @@ export async function runCli(
   let apifyRequests = 0
   let transcriptionCostUsd: number | null = null
   let transcriptionCostLabel: string | null = null
+
+  const pickModelForFinishLine = (fallback: string | null = null): string | null => {
+    const findLastModel = (purpose: LlmCall['purpose']): string | null => {
+      for (let i = llmCalls.length - 1; i >= 0; i -= 1) {
+        const call = llmCalls[i]
+        if (call && call.purpose === purpose) return call.model
+      }
+      return null
+    }
+
+    return (
+      findLastModel('summary') ??
+      findLastModel('markdown') ??
+      (llmCalls.length > 0 ? llmCalls[llmCalls.length - 1]?.model ?? null : null) ??
+      fallback
+    )
+  }
 
   let liteLlmCatalogPromise: ReturnType<typeof loadLiteLlmCatalog> | null = null
   const getLiteLlmCatalog = async () => {
@@ -3644,6 +3664,7 @@ export async function runCli(
         markdownMode: effectiveMarkdownMode,
         hasMarkdownLlmCall: llmCalls.some((call) => call.purpose === 'markdown'),
       })
+      const finishModel = pickModelForFinishLine(null)
       if (json) {
         const finishReport = shouldComputeReport ? await buildReport() : null
         const payload: JsonOutput = {
@@ -3684,7 +3705,8 @@ export async function runCli(
           writeFinishLine({
             stderr,
             elapsedMs: Date.now() - runStartedAtMs,
-            model: finishLabel,
+            label: finishLabel,
+            model: finishModel,
             report: finishReport,
             costUsd,
             detailed: metricsDetailed,
@@ -3709,7 +3731,8 @@ export async function runCli(
         writeFinishLine({
           stderr,
           elapsedMs: Date.now() - runStartedAtMs,
-          model: finishLabel,
+          label: finishLabel,
+          model: finishModel,
           report,
           costUsd,
           detailed: metricsDetailed,
@@ -3738,6 +3761,7 @@ export async function runCli(
         `skip summary: tweet content length=${extracted.content.length} target=${resolveTargetCharacters(lengthArg)}`,
         verboseColor
       )
+      const finishModel = pickModelForFinishLine(requestedModelLabel)
       if (json) {
         const finishReport = shouldComputeReport ? await buildReport() : null
         const payload: JsonOutput = {
@@ -3778,7 +3802,7 @@ export async function runCli(
           writeFinishLine({
             stderr,
             elapsedMs: Date.now() - runStartedAtMs,
-            model: requestedModelLabel,
+            model: finishModel,
             report: finishReport,
             costUsd,
             detailed: metricsDetailed,
@@ -3803,7 +3827,7 @@ export async function runCli(
         writeFinishLine({
           stderr,
           elapsedMs: Date.now() - runStartedAtMs,
-          model: requestedModelLabel,
+          model: finishModel,
           report,
           costUsd,
           detailed: metricsDetailed,

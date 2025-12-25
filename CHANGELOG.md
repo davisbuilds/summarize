@@ -9,6 +9,7 @@
 - `--extract` no longer spends LLM tokens for Markdown conversion by default (unless `--markdown-mode llm` is used).
 - `--format md` no longer forces Firecrawl; use `--firecrawl always` to force it.
 - Finish line in `--extract` shows the extraction path (e.g. `markdown via readability`) and omits noisy `via html` output.
+- Finish line always includes the model id when an LLM is used (including `--extract --markdown-mode llm`).
 - Suppress transcript progress/failure messages for non-YouTube / non-podcast URLs.
 
 ## 0.6.0 - 2025-12-25
