@@ -470,7 +470,7 @@ function buildProgram() {
     )
     .option(
       '--length <length>',
-      'Summary length: short|medium|long|xl|xxl or a character limit like 20000, 20k',
+      'Summary length: short|medium|long|xl|xxl (or s/m/l) or a character limit like 20000, 20k',
       'xl'
     )
     .option(
@@ -886,8 +886,7 @@ function buildConciseHelp(): string {
     '',
     'Run summarize --help for full options.',
     `Support: ${SUPPORT_URL}`,
-  ].join('
-')
+  ].join('\n')
 }
 
 function buildRefreshFreeHelp(): string {
@@ -896,8 +895,7 @@ function buildRefreshFreeHelp(): string {
     '',
     'Writes ~/.summarize/config.json (models.free) with working OpenRouter :free candidates.',
     'With --set-default: also sets `model` to "free".',
-  ].join('
-')
+  ].join('\n')
 }
 
 async function summarizeWithModelId({
@@ -1686,7 +1684,9 @@ export async function runCli(
 
   const openaiUseChatCompletions = (() => {
     const envValue = parseBooleanEnv(
-      typeof envForRun.OPENAI_USE_CHAT_COMPLETIONS === 'string' ? envForRun.OPENAI_USE_CHAT_COMPLETIONS : null
+      typeof envForRun.OPENAI_USE_CHAT_COMPLETIONS === 'string'
+        ? envForRun.OPENAI_USE_CHAT_COMPLETIONS
+        : null
     )
     if (envValue !== null) return envValue
     const configValue = config?.openai?.useChatCompletions
@@ -1694,7 +1694,8 @@ export async function runCli(
   })()
 
   const xaiKeyRaw = typeof envForRun.XAI_API_KEY === 'string' ? envForRun.XAI_API_KEY : null
-  const openaiBaseUrl = typeof envForRun.OPENAI_BASE_URL === 'string' ? envForRun.OPENAI_BASE_URL : null
+  const openaiBaseUrl =
+    typeof envForRun.OPENAI_BASE_URL === 'string' ? envForRun.OPENAI_BASE_URL : null
   const zaiKeyRaw =
     typeof envForRun.Z_AI_API_KEY === 'string'
       ? envForRun.Z_AI_API_KEY
@@ -1709,16 +1710,20 @@ export async function runCli(
         : null
   const openRouterKeyRaw =
     typeof envForRun.OPENROUTER_API_KEY === 'string' ? envForRun.OPENROUTER_API_KEY : null
-  const openaiKeyRaw = typeof envForRun.OPENAI_API_KEY === 'string' ? envForRun.OPENAI_API_KEY : null
+  const openaiKeyRaw =
+    typeof envForRun.OPENAI_API_KEY === 'string' ? envForRun.OPENAI_API_KEY : null
   const apiKey =
     typeof openaiBaseUrl === 'string' && /openrouter\.ai/i.test(openaiBaseUrl)
       ? (openRouterKeyRaw ?? openaiKeyRaw)
       : openaiKeyRaw
-  const apifyToken = typeof envForRun.APIFY_API_TOKEN === 'string' ? envForRun.APIFY_API_TOKEN : null
+  const apifyToken =
+    typeof envForRun.APIFY_API_TOKEN === 'string' ? envForRun.APIFY_API_TOKEN : null
   const ytDlpPath = typeof envForRun.YT_DLP_PATH === 'string' ? envForRun.YT_DLP_PATH : null
   const falApiKey = typeof envForRun.FAL_KEY === 'string' ? envForRun.FAL_KEY : null
-  const firecrawlKey = typeof envForRun.FIRECRAWL_API_KEY === 'string' ? envForRun.FIRECRAWL_API_KEY : null
-  const anthropicKeyRaw = typeof envForRun.ANTHROPIC_API_KEY === 'string' ? envForRun.ANTHROPIC_API_KEY : null
+  const firecrawlKey =
+    typeof envForRun.FIRECRAWL_API_KEY === 'string' ? envForRun.FIRECRAWL_API_KEY : null
+  const anthropicKeyRaw =
+    typeof envForRun.ANTHROPIC_API_KEY === 'string' ? envForRun.ANTHROPIC_API_KEY : null
   const googleKeyRaw =
     typeof envForRun.GEMINI_API_KEY === 'string'
       ? envForRun.GEMINI_API_KEY
@@ -1898,7 +1903,10 @@ export async function runCli(
   })()
 
   const resolvedDefaultModel = (() => {
-    if (typeof envForRun.SUMMARIZE_MODEL === 'string' && envForRun.SUMMARIZE_MODEL.trim().length > 0) {
+    if (
+      typeof envForRun.SUMMARIZE_MODEL === 'string' &&
+      envForRun.SUMMARIZE_MODEL.trim().length > 0
+    ) {
       return envForRun.SUMMARIZE_MODEL.trim()
     }
     const modelFromConfig = config?.model

@@ -107,6 +107,11 @@ export function parseDurationMs(raw: string): number {
 
 export function parseLengthArg(raw: string): LengthArg {
   const normalized = raw.trim().toLowerCase()
+  const shorthand = { s: 'short', m: 'medium', l: 'long' } as const
+  if (normalized in shorthand) {
+    return { kind: 'preset', preset: shorthand[normalized as keyof typeof shorthand] }
+  }
+
   if (SUMMARY_LENGTHS.includes(normalized as SummaryLength)) {
     return { kind: 'preset', preset: normalized as SummaryLength }
   }

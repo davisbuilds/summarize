@@ -143,7 +143,7 @@ Use `summarize --help` or `summarize help` for the full help text.
 - `--model <name>`: use a config-defined model (see “Configuration”)
 - `--timeout <duration>`: `30s`, `2m`, `5000ms` (default `2m`)
 - `--retries <count>`: LLM retry attempts on timeout (default `1`)
-- `--length short|medium|long|xl|xxl|<chars>`
+- `--length short|medium|long|xl|xxl|s|m|l|<chars>`
 - `--language, --lang <language>`: output language (`auto` = match source; or `en`, `de`, `english`, `german`, ...)
 - `--max-output-tokens <count>`: hard cap for LLM output tokens (optional; only sent when set)
 - `--cli [provider]`: use a CLI provider (case-insensitive; equivalent to `--model cli/<provider>`). If omitted, uses auto selection with CLI enabled.
