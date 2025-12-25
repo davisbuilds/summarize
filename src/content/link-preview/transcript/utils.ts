@@ -16,6 +16,7 @@ export const isYouTubeUrl = (rawUrl: string): boolean => {
 
 const YOUTUBE_VIDEO_ID_PATTERN = /^[a-zA-Z0-9_-]{11}$/
 const MAX_EMBED_YOUTUBE_TEXT_CHARS = 2000
+const MAX_EMBED_YOUTUBE_READABILITY_CHARS = 2000
 
 export function isYouTubeVideoUrl(rawUrl: string): boolean {
   try {
@@ -38,7 +39,7 @@ export function isYouTubeVideoUrl(rawUrl: string): boolean {
   return false
 }
 
-export function extractYouTubeVideoId(rawUrl: string): string | null {
+export function extractYouTubeVideoId(rawUrl: string): Promise<string | null> {
   try {
     const url = new URL(rawUrl)
     const hostname = url.hostname.toLowerCase()
@@ -69,15 +70,35 @@ export function extractYouTubeVideoId(rawUrl: string): string | null {
   return null
 }
 
-export function extractEmbeddedYouTubeUrlFromHtml(
+async function extractReadabilityText(html: string): Promise<string> {
+  try {
+    const { Readability } = await import('@mozilla/readability')
+    const { JSDOM } = await import('jsdom')
+    const dom = new JSDOM(html)
+    const reader = new Readability(dom.window.document)
+    const article = reader.parse()
+    const text = (article?.textContent ?? '').replace(/\s+/g, ' ').trim()
+    return text
+  } catch {
+    return ''
+  }
+}
+
+export async function extractEmbeddedYouTubeUrlFromHtml(
   html: string,
-  maxTextChars = MAX_EMBED_YOUTUBE_TEXT_CHARS
-): string | null {
+  maxTextChars = MAX_EMBED_YOUTUBE_TEXT_CHARS,
+  maxReadabilityChars = MAX_EMBED_YOUTUBE_READABILITY_CHARS
+): Promise<string | null> {
   try {
     const $ = load(html)
     const rawText = $('body').text() || $.text()
     const normalizedText = rawText.replace(/\s+/g, ' ').trim()
-    if (normalizedText.length > maxTextChars) return null
+
+    const readabilityText = await extractReadabilityText(html)
+    const effectiveLength = readabilityText.length > 0 ? readabilityText.length : normalizedText.length
+    const threshold = readabilityText.length > 0 ? maxReadabilityChars : maxTextChars
+    if (effectiveLength > threshold) return null
+
     const candidates: string[] = []
 
     const iframeSrc =
@@ -152,7 +173,7 @@ export function extractYoutubeBootstrapConfig(html: string): Record<string, unkn
 const YTCFG_SET_TOKEN = 'ytcfg.set'
 const YTCFG_VAR_TOKEN = 'var ytcfg'
 
-function extractBalancedJsonObject(source: string, startAt: number): string | null {
+function extractBalancedJsonObject(source: string, startAt: number): Promise<string | null> {
   const start = source.indexOf('{', startAt)
   if (start < 0) {
     return null
