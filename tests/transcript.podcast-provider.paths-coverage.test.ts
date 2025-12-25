@@ -33,6 +33,46 @@ const baseOptions = {
 }
 
 describe('podcast transcript provider - coverage paths', () => {
+  it('prefers RSS <podcast:transcript> over Apple Podcasts streamUrl when both are present', async () => {
+    const html = `<html><head><meta name="apple:title" content="Episode 1"/></head><body><script>{"feedUrl":"https://example.com/feed.xml","streamUrl":"https://example.com/episode.mp3"}</script></body></html>`
+
+    const feedXml = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:podcast="https://podcastindex.org/namespace/1.0"><channel><item><title><![CDATA[Episode 1]]></title><podcast:transcript url="https://example.com/transcript.vtt" type="text/vtt"/></item></channel></rss>`
+    const vtt = `WEBVTT
+
+00:00:00.000 --> 00:00:01.000
+Hello from VTT
+`
+
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url === 'https://example.com/feed.xml') {
+        return new Response(feedXml, {
+          status: 200,
+          headers: { 'content-type': 'application/xml' },
+        })
+      }
+      if (url === 'https://example.com/transcript.vtt') {
+        return new Response(vtt, { status: 200, headers: { 'content-type': 'text/vtt' } })
+      }
+      throw new Error(`Unexpected fetch: ${url}`)
+    })
+
+    const result = await fetchTranscript(
+      { url: 'https://podcasts.apple.com/us/podcast/id123?i=456', html, resourceKey: null },
+      {
+        ...baseOptions,
+        fetch: fetchImpl as unknown as typeof fetch,
+        openaiApiKey: null,
+        falApiKey: null,
+      }
+    )
+
+    expect(result.source).toBe('podcastTranscript')
+    expect(result.text).toBe('Hello from VTT')
+    expect(result.metadata?.kind).toBe('apple_feed_transcript')
+  })
+
   it('transcribes Apple Podcasts streamUrl when present in HTML', async () => {
     const html = `<html><body><script>{"streamUrl":"https://example.com/episode.mp3"}</script></body></html>`
 

@@ -428,22 +428,157 @@ export const fetchTranscript = async (
     }
   }
 
+  const appleEpisodeTitle =
+    typeof context.html === 'string' ? extractAppleEpisodeTitleFromHtml(context.html) : null
+
+  const appleFeedUrl =
+    typeof context.html === 'string' ? extractEmbeddedJsonUrl(context.html, 'feedUrl') : null
+  if (appleFeedUrl) {
+    try {
+      const feedResponse = await options.fetch(appleFeedUrl, {
+        signal: AbortSignal.timeout(TRANSCRIPTION_TIMEOUT_MS),
+      })
+      if (!feedResponse.ok) {
+        throw new Error(`Feed fetch failed (${feedResponse.status})`)
+      }
+      const xml = await feedResponse.text()
+
+      let maybeTranscript: Awaited<ReturnType<typeof tryFetchTranscriptFromFeedXml>> = null
+      if (/podcast:transcript/i.test(xml)) {
+        pushOnce('podcastTranscript')
+        maybeTranscript = await tryFetchTranscriptFromFeedXml({
+          fetchImpl: options.fetch,
+          feedXml: xml,
+          episodeTitle: appleEpisodeTitle,
+          notes,
+        })
+      }
+      if (maybeTranscript) {
+        return {
+          text: maybeTranscript.text,
+          source: 'podcastTranscript',
+          attemptedProviders,
+          notes: notes.length > 0 ? notes.join('; ') : null,
+          metadata: {
+            provider: 'podcast',
+            kind: 'apple_feed_transcript',
+            feedUrl: appleFeedUrl,
+            episodeTitle: appleEpisodeTitle,
+            transcriptUrl: maybeTranscript.transcriptUrl,
+            transcriptType: maybeTranscript.transcriptType,
+          },
+        }
+      }
+
+      const enclosure =
+        appleEpisodeTitle != null
+          ? extractEnclosureForEpisode(xml, appleEpisodeTitle)
+          : extractEnclosureFromFeed(xml)
+      if (enclosure) {
+        const resolvedUrl = decodeXmlEntities(enclosure.enclosureUrl)
+        const durationSeconds = enclosure.durationSeconds
+        const missing = ensureTranscriptionProvider()
+        if (missing) return missing
+        pushOnce('whisper')
+        let result: Awaited<ReturnType<typeof transcribeMediaUrl>>
+        try {
+          result = await transcribeMediaUrl({
+            fetchImpl: options.fetch,
+            url: resolvedUrl,
+            filenameHint: 'episode.mp3',
+            durationSecondsHint: durationSeconds,
+            openaiApiKey: options.openaiApiKey,
+            falApiKey: options.falApiKey,
+            notes,
+            progress: {
+              url: context.url,
+              service: 'podcast',
+              onProgress: options.onProgress ?? null,
+            },
+          })
+        } catch (error) {
+          return {
+            text: null,
+            source: null,
+            attemptedProviders,
+            notes: error instanceof Error ? error.message : String(error),
+            metadata: {
+              provider: 'podcast',
+              kind: 'apple_feed_url',
+              feedUrl: appleFeedUrl,
+              episodeTitle: appleEpisodeTitle,
+              enclosureUrl: resolvedUrl,
+              durationSeconds,
+            },
+          }
+        }
+        if (result.text) {
+          return {
+            text: result.text,
+            source: 'whisper',
+            attemptedProviders,
+            notes: notes.length > 0 ? notes.join('; ') : null,
+            metadata: {
+              provider: 'podcast',
+              kind: 'apple_feed_url',
+              feedUrl: appleFeedUrl,
+              episodeTitle: appleEpisodeTitle,
+              enclosureUrl: resolvedUrl,
+              durationSeconds,
+              transcriptionProvider: result.provider,
+            },
+          }
+        }
+        return {
+          text: null,
+          source: null,
+          attemptedProviders,
+          notes: result.error?.message ?? null,
+          metadata: {
+            provider: 'podcast',
+            kind: 'apple_feed_url',
+            feedUrl: appleFeedUrl,
+            episodeTitle: appleEpisodeTitle,
+            durationSeconds,
+          },
+        }
+      }
+    } catch (error) {
+      // Apple pages usually contain both `feedUrl` and `streamUrl`. If the feed is flaky/blocked,
+      // fall back to `streamUrl` instead of failing the whole provider.
+      notes.push(
+        `Podcast feed fetch failed: ${error instanceof Error ? error.message : String(error)}`
+      )
+    }
+  }
+
   const appleStreamUrl =
     typeof context.html === 'string' ? extractEmbeddedJsonUrl(context.html, 'streamUrl') : null
   if (appleStreamUrl) {
     const missing = ensureTranscriptionProvider()
     if (missing) return missing
     pushOnce('whisper')
-    const result = await transcribeMediaUrl({
-      fetchImpl: options.fetch,
-      url: appleStreamUrl,
-      filenameHint: 'episode.mp3',
-      durationSecondsHint: null,
-      openaiApiKey: options.openaiApiKey,
-      falApiKey: options.falApiKey,
-      notes,
-      progress: { url: context.url, service: 'podcast', onProgress: options.onProgress ?? null },
-    })
+    let result: Awaited<ReturnType<typeof transcribeMediaUrl>>
+    try {
+      result = await transcribeMediaUrl({
+        fetchImpl: options.fetch,
+        url: appleStreamUrl,
+        filenameHint: 'episode.mp3',
+        durationSecondsHint: null,
+        openaiApiKey: options.openaiApiKey,
+        falApiKey: options.falApiKey,
+        notes,
+        progress: { url: context.url, service: 'podcast', onProgress: options.onProgress ?? null },
+      })
+    } catch (error) {
+      return {
+        text: null,
+        source: null,
+        attemptedProviders,
+        notes: error instanceof Error ? error.message : String(error),
+        metadata: { provider: 'podcast', kind: 'apple_stream_url', streamUrl: appleStreamUrl },
+      }
+    }
     if (result.text) {
       return {
         text: result.text,
@@ -464,103 +599,6 @@ export const fetchTranscript = async (
       attemptedProviders,
       notes: result.error?.message ?? null,
       metadata: { provider: 'podcast', kind: 'apple_stream_url', streamUrl: appleStreamUrl },
-    }
-  }
-
-  const appleFeedUrl =
-    typeof context.html === 'string' ? extractEmbeddedJsonUrl(context.html, 'feedUrl') : null
-  if (appleFeedUrl) {
-    try {
-      const feedResponse = await options.fetch(appleFeedUrl, {
-        signal: AbortSignal.timeout(TRANSCRIPTION_TIMEOUT_MS),
-      })
-      if (!feedResponse.ok) {
-        throw new Error(`Feed fetch failed (${feedResponse.status})`)
-      }
-      const xml = await feedResponse.text()
-      let maybeTranscript: Awaited<ReturnType<typeof tryFetchTranscriptFromFeedXml>> = null
-      if (/podcast:transcript/i.test(xml)) {
-        pushOnce('podcastTranscript')
-        maybeTranscript = await tryFetchTranscriptFromFeedXml({
-          fetchImpl: options.fetch,
-          feedXml: xml,
-          episodeTitle: null,
-          notes,
-        })
-      }
-      if (maybeTranscript) {
-        return {
-          text: maybeTranscript.text,
-          source: 'podcastTranscript',
-          attemptedProviders,
-          notes: notes.length > 0 ? notes.join('; ') : null,
-          metadata: {
-            provider: 'podcast',
-            kind: 'apple_feed_transcript',
-            feedUrl: appleFeedUrl,
-            transcriptUrl: maybeTranscript.transcriptUrl,
-            transcriptType: maybeTranscript.transcriptType,
-          },
-        }
-      }
-      const enclosure = extractEnclosureFromFeed(xml)
-      if (enclosure) {
-        const resolvedUrl = decodeXmlEntities(enclosure.enclosureUrl)
-        const durationSeconds = enclosure.durationSeconds
-        const missing = ensureTranscriptionProvider()
-        if (missing) return missing
-        pushOnce('whisper')
-        const result = await transcribeMediaUrl({
-          fetchImpl: options.fetch,
-          url: resolvedUrl,
-          filenameHint: 'episode.mp3',
-          durationSecondsHint: durationSeconds,
-          openaiApiKey: options.openaiApiKey,
-          falApiKey: options.falApiKey,
-          notes,
-          progress: {
-            url: context.url,
-            service: 'podcast',
-            onProgress: options.onProgress ?? null,
-          },
-        })
-        if (result.text) {
-          return {
-            text: result.text,
-            source: 'whisper',
-            attemptedProviders,
-            notes: notes.length > 0 ? notes.join('; ') : null,
-            metadata: {
-              provider: 'podcast',
-              kind: 'apple_feed_url',
-              feedUrl: appleFeedUrl,
-              enclosureUrl: resolvedUrl,
-              durationSeconds,
-              transcriptionProvider: result.provider,
-            },
-          }
-        }
-        return {
-          text: null,
-          source: null,
-          attemptedProviders,
-          notes: result.error?.message ?? null,
-          metadata: {
-            provider: 'podcast',
-            kind: 'apple_feed_url',
-            feedUrl: appleFeedUrl,
-            durationSeconds,
-          },
-        }
-      }
-    } catch (error) {
-      return {
-        text: null,
-        source: null,
-        attemptedProviders,
-        notes: `Podcast feed fetch failed: ${error instanceof Error ? error.message : String(error)}`,
-        metadata: { provider: 'podcast', kind: 'apple_feed_url', feedUrl: appleFeedUrl },
-      }
     }
   }
 
@@ -768,6 +806,17 @@ function extractEnclosureUrlFromItem(xml: string): string | null {
   if (atomMatch?.[3]) return atomMatch[3]
 
   return null
+}
+
+function extractAppleEpisodeTitleFromHtml(html: string): string | null {
+  // Apple Podcast episode pages include `apple:title` and `og:title` meta tags.
+  // Prefer `apple:title` (episode title only) to match RSS items.
+  const apple =
+    html.match(/<meta\s+name=["']apple:title["']\s+content=["']([^"']+)["']/i)?.[1] ?? null
+  const og =
+    html.match(/<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i)?.[1] ?? null
+  const title = (apple ?? og ?? '').trim()
+  return title.length > 0 ? title : null
 }
 
 function extractEmbeddedJsonUrl(html: string, field: string): string | null {
