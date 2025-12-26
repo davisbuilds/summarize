@@ -28,7 +28,8 @@ await build({
   format: 'cjs',
   target: 'node22',
   sourcemap: true,
-  logLevel: 'info',
+  // Keep builds quiet in CI/prepare; real failures still surface as errors.
+  logLevel: 'warning',
   banner: { js: '#!/usr/bin/env node' },
   define: gitSha ? { 'process.env.SUMMARIZE_GIT_SHA': JSON.stringify(gitSha) } : undefined,
   external: ['@steipete/summarize-core', '@steipete/summarize-core/*'],
