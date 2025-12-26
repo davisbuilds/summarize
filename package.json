@@ -36,7 +36,8 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "pnpm -C packages/core build && pnpm build:lib && pnpm build:cli",
+    "clean": "rm -rf dist packages/core/dist",
+    "build": "pnpm clean && pnpm -C packages/core build && pnpm build:lib && pnpm build:cli",
     "build:lib": "tsc -p tsconfig.build.json",
     "build:cli": "node scripts/build-cli.mjs",
     "build:bun": "bun scripts/build-bun.js",
