@@ -9,7 +9,7 @@ importers:
   .:
     dependencies:
       '@steipete/summarize-core':
-        specifier: 0.6.2
+        specifier: 0.7.0
         version: link:packages/core
     devDependencies:
       '@ai-sdk/anthropic':
