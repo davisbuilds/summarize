@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { Writable } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 
+import { toNitterUrls } from '../src/content/link-preview/content/twitter-utils.js'
 import { runCli } from '../src/run.js'
 
 const noopStream = () =>
@@ -169,11 +170,11 @@ describe('cli error handling', () => {
 
   it('fails gracefully when Twitter content is unavailable after bird and nitter', async () => {
     const tweetUrl = 'https://x.com/user/status/123'
-    const nitterUrl = 'https://nitter.net/user/status/123'
+    const nitterUrls = toNitterUrls(tweetUrl)
     const blockedHtml = `<!doctype html><html><body><p>Something went wrong, but don’t fret — let’s give it another shot.</p></body></html>`
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.url
-      if (url === tweetUrl || url === nitterUrl) {
+      if (url === tweetUrl || nitterUrls.includes(url)) {
         return new Response(blockedHtml, {
           status: 200,
           headers: { 'Content-Type': 'text/html' },

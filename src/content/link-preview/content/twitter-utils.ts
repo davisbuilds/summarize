@@ -1,5 +1,11 @@
 const TWITTER_HOSTS = new Set(['x.com', 'twitter.com', 'mobile.twitter.com'])
-const NITTER_HOST = 'nitter.net'
+const NITTER_HOSTS = [
+  'nitter.net',
+  'nitter.poast.org',
+  'nitter.catsarch.com',
+  'nitter.privacydev.net',
+  'nitter.1d4.us',
+]
 const TWITTER_BLOCKED_TEXT_PATTERN =
   /something went wrong|try again|privacy related extensions|please disable them and try again/i
 
@@ -14,16 +20,35 @@ export function isTwitterStatusUrl(url: string): boolean {
   }
 }
 
-export function toNitterUrl(url: string): string | null {
+function rotateHosts<T>(values: T[], seed: number): T[] {
+  if (values.length <= 1) return values.slice()
+  const offset = Math.abs(seed) % values.length
+  return values.slice(offset).concat(values.slice(0, offset))
+}
+
+function hashSeed(input: string): number {
+  let hash = 0
+  for (let i = 0; i < input.length; i += 1) {
+    hash = (hash * 31 + input.charCodeAt(i)) | 0
+  }
+  return hash
+}
+
+export function toNitterUrls(url: string): string[] {
   try {
     const parsed = new URL(url)
     const host = parsed.hostname.toLowerCase().replace(/^www\./, '')
-    if (!TWITTER_HOSTS.has(host)) return null
-    parsed.hostname = NITTER_HOST
-    parsed.protocol = 'https:'
-    return parsed.toString()
+    if (!TWITTER_HOSTS.has(host)) return []
+    const seed = hashSeed(`${parsed.pathname}${parsed.search}`)
+    const rotated = rotateHosts(NITTER_HOSTS, seed)
+    return rotated.map((nitterHost) => {
+      const copy = new URL(parsed.toString())
+      copy.hostname = nitterHost
+      copy.protocol = 'https:'
+      return copy.toString()
+    })
   } catch {
-    return null
+    return []
   }
 }
 

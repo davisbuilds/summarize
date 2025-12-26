@@ -9,7 +9,7 @@ import { buildResultFromFirecrawl, shouldFallbackToFirecrawl } from './firecrawl
 import { buildResultFromHtmlDocument } from './html.js'
 import { extractApplePodcastIds, extractSpotifyEpisodeId } from './podcast-utils.js'
 import { extractReadabilityFromHtml } from './readability.js'
-import { isBlockedTwitterContent, isTwitterStatusUrl, toNitterUrl } from './twitter-utils.js'
+import { isBlockedTwitterContent, isTwitterStatusUrl, toNitterUrls } from './twitter-utils.js'
 import type { ExtractedLinkContent, FetchLinkContentOptions, MarkdownMode } from './types.js'
 import {
   appendNote,
@@ -163,7 +163,7 @@ export async function fetchLinkContent(
   }
 
   const twitterStatus = isTwitterStatusUrl(url)
-  const nitterUrl = twitterStatus ? toNitterUrl(url) : null
+  const nitterUrls = twitterStatus ? toNitterUrls(url) : []
   let birdError: unknown = null
   let nitterError: unknown = null
 
@@ -279,24 +279,31 @@ export async function fetchLinkContent(
   }
 
   const attemptNitter = async (): Promise<string | null> => {
-    if (!nitterUrl) {
+    if (nitterUrls.length === 0) {
       return null
     }
-    deps.onProgress?.({ kind: 'nitter-start', url })
-    try {
-      const nitterHtml = await fetchHtmlDocument(deps.fetch, nitterUrl, { timeoutMs })
-      deps.onProgress?.({
-        kind: 'nitter-done',
-        url,
-        ok: true,
-        textBytes: Buffer.byteLength(nitterHtml, 'utf8'),
-      })
-      return nitterHtml
-    } catch (error) {
-      nitterError = error
-      deps.onProgress?.({ kind: 'nitter-done', url, ok: false, textBytes: null })
-      return null
+    for (const nitterUrl of nitterUrls) {
+      deps.onProgress?.({ kind: 'nitter-start', url: nitterUrl })
+      try {
+        const nitterHtml = await fetchHtmlDocument(deps.fetch, nitterUrl, { timeoutMs })
+        if (!nitterHtml.trim()) {
+          nitterError = new Error(`Nitter returned empty body from ${new URL(nitterUrl).host}`)
+          deps.onProgress?.({ kind: 'nitter-done', url: nitterUrl, ok: false, textBytes: null })
+          continue
+        }
+        deps.onProgress?.({
+          kind: 'nitter-done',
+          url: nitterUrl,
+          ok: true,
+          textBytes: Buffer.byteLength(nitterHtml, 'utf8'),
+        })
+        return nitterHtml
+      } catch (error) {
+        nitterError = error
+        deps.onProgress?.({ kind: 'nitter-done', url: nitterUrl, ok: false, textBytes: null })
+      }
     }
+    return null
   }
 
   const nitterHtml = await attemptNitter()
@@ -396,7 +403,7 @@ export async function fetchLinkContent(
       : birdError
         ? `Bird failed: ${birdError instanceof Error ? birdError.message : String(birdError)}`
         : 'Bird returned no text'
-    const nitterNote = nitterUrl
+    const nitterNote = nitterUrls.length > 0
       ? nitterError
         ? `Nitter failed: ${nitterError instanceof Error ? nitterError.message : String(nitterError)}`
         : 'Nitter returned no text'
