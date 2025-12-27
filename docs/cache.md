@@ -1,3 +1,9 @@
+---
+summary: "CLI cache design, keys, config, and eviction."
+read_when:
+  - "When changing cache behavior, keys, or defaults."
+---
+
 # Cache (design)
 
 Lightweight, CLI-only SQLite cache. Single DB file.

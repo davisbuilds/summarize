@@ -1,3 +1,9 @@
+---
+summary: "Config file location, precedence, and schema."
+read_when:
+  - "When adding config keys or defaults."
+---
+
 # Config
 
 `summarize` supports an optional JSON config file for defaults.
@@ -64,6 +70,7 @@ Shorthand (equivalent):
 {
   "model": "auto"
 }
+```
 
 ## Prompt
 
@@ -90,7 +97,6 @@ Configure the on-disk SQLite cache (extracted content, transcripts, summaries).
     "path": "~/.summarize/cache.sqlite"
   }
 }
-```
 ```
 
 ## Presets

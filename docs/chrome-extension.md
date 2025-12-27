@@ -1,3 +1,9 @@
+---
+summary: "Chrome side panel extension + daemon architecture, setup, and troubleshooting."
+read_when:
+  - "When working on the extension, daemon, or side panel UX."
+---
+
 # Chrome Side Panel (Chrome Extension + Daemon)
 
 Goal: Chrome **Side Panel** (“real sidebar”) summarizes **what you see** on the current tab. Panel open → navigation → auto summarize (optional) → **streaming** Markdown rendered in-panel.

@@ -1,3 +1,7 @@
+---
+summary: "Docs index for summarize behaviors and modes."
+---
+
 # Docs
 
 - `docs/website.md` — normal websites (HTML extraction + Firecrawl fallback)

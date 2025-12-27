@@ -1,3 +1,9 @@
+---
+summary: "LLM usage, env vars, flags, and prompt rules."
+read_when:
+  - "When changing model selection or prompt formatting."
+---
+
 # LLM / summarization mode
 
 By default `summarize` will call an LLM using **direct provider API keys**. When CLI tools are
