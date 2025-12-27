@@ -58,8 +58,7 @@ export async function handleFileInput(
     stopOscProgress()
   }
   const clearProgressLine = () => {
-    spinner.pause()
-    queueMicrotask(() => spinner.resume())
+    stopProgress()
   }
   ctx.setClearProgressBeforeStdout(clearProgressLine)
   try {
@@ -124,8 +123,7 @@ export async function handleUrlAsset(
     stopOscProgress()
   }
   const clearProgressLine = () => {
-    spinner.pause()
-    queueMicrotask(() => spinner.resume())
+    stopProgress()
   }
   ctx.setClearProgressBeforeStdout(clearProgressLine)
   try {

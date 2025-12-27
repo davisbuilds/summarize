@@ -127,9 +127,7 @@ export async function runUrlFlow({
     oscProgress.clear()
   }
   const clearProgressLine = () => {
-    spinner.pause()
-    oscProgress.clear()
-    queueMicrotask(() => spinner.resume())
+    stopProgress()
   }
   ctx.setClearProgressBeforeStdout(clearProgressLine)
   try {
