@@ -28,11 +28,23 @@
       <div class="drawerGrid">
         <label class="toggle">
           <input id="auto" type="checkbox" />
-          <span>Auto</span>
+          <span>Auto summarize</span>
         </label>
         <label class="model">
           <span>Model</span>
-          <input id="model" type="text" placeholder="auto / free / openai/…" />
+          <input
+            id="model"
+            type="text"
+            list="modelPresets"
+            placeholder="auto / free / openai/…"
+            autocapitalize="off"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <datalist id="modelPresets">
+            <option value="auto" label="Auto"></option>
+            <option value="free" label="Free"></option>
+          </datalist>
         </label>
         <label class="font">
           <span>Font</span>

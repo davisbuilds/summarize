@@ -16,7 +16,19 @@
         </label>
         <label>
           <span>Model</span>
-          <input id="model" type="text" placeholder="auto / free / openai/…" />
+          <input
+            id="model"
+            type="text"
+            list="modelPresets"
+            placeholder="auto / free / openai/…"
+            autocapitalize="off"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <datalist id="modelPresets">
+            <option value="auto" label="Auto"></option>
+            <option value="free" label="Free"></option>
+          </datalist>
         </label>
         <label class="row">
           <input id="auto" type="checkbox" />
@@ -43,4 +55,3 @@
     <script type="module" src="./main.ts"></script>
   </body>
 </html>
-

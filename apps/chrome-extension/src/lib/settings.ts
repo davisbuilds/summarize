@@ -23,6 +23,15 @@ function normalizeFontFamily(value: unknown): string {
   return legacyFontFamilyMap.get(trimmed) ?? trimmed
 }
 
+function normalizeModel(value: unknown): string {
+  if (typeof value !== 'string') return defaultSettings.model
+  const trimmed = value.trim()
+  if (!trimmed) return defaultSettings.model
+  const lowered = trimmed.toLowerCase()
+  if (lowered === 'auto' || lowered === 'free') return lowered
+  return trimmed
+}
+
 export const defaultSettings: Settings = {
   token: '',
   autoSummarize: true,
@@ -39,7 +48,7 @@ export async function loadSettings(): Promise<Settings> {
     ...defaultSettings,
     ...raw,
     token: typeof raw.token === 'string' ? raw.token : defaultSettings.token,
-    model: typeof raw.model === 'string' ? raw.model : defaultSettings.model,
+    model: normalizeModel(raw.model),
     autoSummarize:
       typeof raw.autoSummarize === 'boolean' ? raw.autoSummarize : defaultSettings.autoSummarize,
     maxChars: typeof raw.maxChars === 'number' ? raw.maxChars : defaultSettings.maxChars,
@@ -49,7 +58,13 @@ export async function loadSettings(): Promise<Settings> {
 }
 
 export async function saveSettings(settings: Settings): Promise<void> {
-  await chrome.storage.local.set({ [storageKey]: settings })
+  await chrome.storage.local.set({
+    [storageKey]: {
+      ...settings,
+      model: normalizeModel(settings.model),
+      fontFamily: normalizeFontFamily(settings.fontFamily),
+    },
+  })
 }
 
 export async function patchSettings(patch: Partial<Settings>): Promise<Settings> {
