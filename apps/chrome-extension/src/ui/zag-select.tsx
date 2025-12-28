@@ -34,7 +34,16 @@ export function useZagSelect({ id, items, value, onValueChange }: UseZagSelectAr
   const service = useMachine(select.machine, {
     id,
     collection,
-    positioning: { placement: 'bottom-start', gutter: 6, sameWidth: true, strategy: 'fixed' },
+    positioning: {
+      placement: 'bottom-start',
+      gutter: 6,
+      sameWidth: true,
+      strategy: 'fixed',
+      fitViewport: true,
+      flip: true,
+      shift: 8,
+      overflowPadding: 8,
+    },
     defaultValue: value ? [value] : [],
     onValueChange: ({ value: next }: select.ValueChangeDetails) => {
       if (syncing.current) return
