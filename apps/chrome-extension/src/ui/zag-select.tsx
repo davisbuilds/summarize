@@ -29,7 +29,7 @@ export function useZagSelect({ id, items, value, onValueChange }: UseZagSelectAr
 
   const syncing = useRef(false)
 
-  const { state, send } = useMachine(select.machine, {
+  const service = useMachine(select.machine, {
     id,
     collection,
     positioning: { placement: 'bottom-start', gutter: 6, sameWidth: true },
@@ -40,7 +40,7 @@ export function useZagSelect({ id, items, value, onValueChange }: UseZagSelectAr
     },
   })
 
-  const api = select.connect(state, send, normalizeProps)
+  const api = select.connect(service, normalizeProps)
   const apiRef = useRef(api)
   apiRef.current = api
 

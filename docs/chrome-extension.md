@@ -23,6 +23,9 @@ Quickstart:
 Dev (repo checkout):
 
 - Use: `pnpm summarize daemon install --token <TOKEN> --dev` (autostart service runs `src/cli.ts` via `tsx`, no `dist/` build required).
+- E2E (Playwright): `pnpm -C apps/chrome-extension test:e2e`
+  - First run: `pnpm -C apps/chrome-extension exec playwright install chromium`
+  - Headless: `HEADLESS=1 pnpm -C apps/chrome-extension test:e2e` (headful is more reliable for extensions)
 
 ## Troubleshooting
 
