@@ -1170,8 +1170,16 @@ main {
   margin: 18px 0 8px;
 }
 
+.render h1 {
+  font-size: calc(var(--font-size) * 1.28);
+}
+
+.render h2 {
+  font-size: calc(var(--font-size) * 1.14);
+}
+
 .render h3 {
-  font-size: 13px;
+  font-size: var(--font-size);
   letter-spacing: 0.2px;
   color: var(--text);
 }
