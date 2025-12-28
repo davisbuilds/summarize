@@ -100,6 +100,8 @@ function SelectField({
     position: 'fixed',
     zIndex: 9999,
   }
+  if ('width' in positionerStyle) delete positionerStyle.width
+  if ('maxWidth' in positionerStyle) delete positionerStyle.maxWidth
   const content = (
     <div
       className="pickerPositioner"
@@ -214,6 +216,8 @@ function LengthField({
     position: 'fixed',
     zIndex: 9999,
   }
+  if ('width' in positionerStyle) delete positionerStyle.width
+  if ('maxWidth' in positionerStyle) delete positionerStyle.maxWidth
   const content = (
     <div
       className="pickerPositioner"
