@@ -179,6 +179,10 @@ function endSession(session: Session) {
   session.clients.clear()
 }
 
+export function buildHealthPayload(importMetaUrl?: string) {
+  return { ok: true, pid: process.pid, version: resolvePackageVersion(importMetaUrl) }
+}
+
 export async function runDaemonServer({
   env,
   fetchImpl,
@@ -215,7 +219,7 @@ export async function runDaemonServer({
       const pathname = url.pathname
 
       if (req.method === 'GET' && pathname === '/health') {
-        json(res, 200, { ok: true, pid: process.pid, version: resolvePackageVersion(import.meta.url) }, cors)
+        json(res, 200, buildHealthPayload(import.meta.url), cors)
         return
       }
 
