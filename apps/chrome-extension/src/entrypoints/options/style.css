@@ -820,6 +820,16 @@ textarea {
   display: flex;
   align-items: center;
   gap: 6px;
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  padding: 10px;
+  margin: 6px -10px -10px;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 14px 14px;
+  background: var(--panel);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 button {
