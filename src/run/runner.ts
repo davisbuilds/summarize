@@ -9,17 +9,9 @@ import {
 } from '../cache.js'
 import { loadSummarizeConfig } from '../config.js'
 import {
-  parseDurationMs,
   parseExtractFormat,
-  parseFirecrawlMode,
-  parseLengthArg,
-  parseMarkdownMode,
-  parseMaxOutputTokensArg,
   parseMetricsMode,
-  parsePreprocessMode,
-  parseRetriesArg,
   parseStreamMode,
-  parseYoutubeMode,
 } from '../flags.js'
 import type { ExecFileFn } from '../markitdown.js'
 import type { FixedModelSpec } from '../model-spec.js'
@@ -43,6 +35,7 @@ import { createRunMetrics } from './run-metrics.js'
 import { resolveModelSelection } from './run-models.js'
 import { resolveDesiredOutputTokens } from './run-output.js'
 import { resolveStreamSettings } from './run-stream.js'
+import { resolveCliRunSettings } from './run-settings.js'
 import { createSummaryEngine } from './summary-engine.js'
 import { ansi, isRichTty, supportsColor } from './terminal.js'
 
@@ -211,18 +204,12 @@ export async function runCli(
 
   const runStartedAtMs = Date.now()
 
-  const youtubeMode = parseYoutubeMode(program.opts().youtube as string)
   const videoModeExplicitlySet = normalizedArgv.some(
     (arg) => arg === '--video-mode' || arg.startsWith('--video-mode=')
   )
   const lengthExplicitlySet = normalizedArgv.some(
     (arg) => arg === '--length' || arg.startsWith('--length=')
   )
-  const lengthArg = parseLengthArg(program.opts().length as string)
-  const maxOutputTokensArg = parseMaxOutputTokensArg(
-    program.opts().maxOutputTokens as string | undefined
-  )
-  const timeoutMs = parseDurationMs(program.opts().timeout as string)
   const languageExplicitlySet = normalizedArgv.some(
     (arg) =>
       arg === '--language' ||
@@ -230,7 +217,6 @@ export async function runCli(
       arg === '--lang' ||
       arg.startsWith('--lang=')
   )
-  const retries = parseRetriesArg(program.opts().retries as string)
   const noCacheFlag = program.opts().cache === false
   const extractMode = Boolean(program.opts().extract) || Boolean(program.opts().extractOnly)
   const json = Boolean(program.opts().json)
@@ -238,21 +224,6 @@ export async function runCli(
   const plain = Boolean(program.opts().plain)
   const debug = Boolean(program.opts().debug)
   const verbose = Boolean(program.opts().verbose) || debug
-
-  if (extractMode && lengthExplicitlySet && !json && isRichTty(stderr)) {
-    stderr.write('Warning: --length is ignored with --extract (no summary is generated).\n')
-  }
-
-  const metricsExplicitlySet = normalizedArgv.some(
-    (arg) => arg === '--metrics' || arg.startsWith('--metrics=')
-  )
-  const metricsMode = parseMetricsMode(
-    debug && !metricsExplicitlySet ? 'detailed' : (program.opts().metrics as string)
-  )
-  const metricsEnabled = metricsMode !== 'off'
-  const metricsDetailed = metricsMode === 'detailed'
-  const preprocessMode = parsePreprocessMode(program.opts().preprocess as string)
-  const shouldComputeReport = metricsEnabled
 
   const isYoutubeUrl = typeof url === 'string' ? /youtube\.com|youtu\.be/i.test(url) : false
   const formatExplicitlySet = normalizedArgv.some(
@@ -267,6 +238,53 @@ export async function runCli(
         ? 'md'
         : 'text'
   )
+
+  const runSettings = resolveCliRunSettings({
+    length: String(program.opts().length),
+    firecrawl: String(program.opts().firecrawl),
+    markdownMode:
+      typeof program.opts().markdownMode === 'string'
+        ? program.opts().markdownMode
+        : undefined,
+    markdown:
+      typeof program.opts().markdown === 'string' ? program.opts().markdown : undefined,
+    format,
+    preprocess: String(program.opts().preprocess),
+    youtube: String(program.opts().youtube),
+    timeout: String(program.opts().timeout),
+    retries: String(program.opts().retries),
+    maxOutputTokens:
+      typeof program.opts().maxOutputTokens === 'string'
+        ? program.opts().maxOutputTokens
+        : program.opts().maxOutputTokens != null
+          ? String(program.opts().maxOutputTokens)
+          : undefined,
+  })
+  const {
+    youtubeMode,
+    lengthArg,
+    maxOutputTokensArg,
+    timeoutMs,
+    retries,
+    preprocessMode,
+    firecrawlMode: requestedFirecrawlMode,
+    markdownMode,
+  } = runSettings
+
+  if (extractMode && lengthExplicitlySet && !json && isRichTty(stderr)) {
+    stderr.write('Warning: --length is ignored with --extract (no summary is generated).\n')
+  }
+
+  const metricsExplicitlySet = normalizedArgv.some(
+    (arg) => arg === '--metrics' || arg.startsWith('--metrics=')
+  )
+  const metricsMode = parseMetricsMode(
+    debug && !metricsExplicitlySet ? 'detailed' : (program.opts().metrics as string)
+  )
+  const metricsEnabled = metricsMode !== 'off'
+  const metricsDetailed = metricsMode === 'detailed'
+  const shouldComputeReport = metricsEnabled
+
   const _firecrawlExplicitlySet = normalizedArgv.some(
     (arg) => arg === '--firecrawl' || arg.startsWith('--firecrawl=')
   )
@@ -277,15 +295,6 @@ export async function runCli(
       arg === '--markdown' ||
       arg.startsWith('--markdown=')
   )
-  const markdownMode =
-    format === 'markdown'
-      ? parseMarkdownMode(
-          (program.opts().markdownMode as string | undefined) ??
-            (program.opts().markdown as string | undefined) ??
-            'readability'
-        )
-      : 'off'
-  const requestedFirecrawlMode = parseFirecrawlMode(program.opts().firecrawl as string)
   const modelArg =
     typeof program.opts().model === 'string' ? (program.opts().model as string) : null
   const cliProviderArg =

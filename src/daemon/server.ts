@@ -10,13 +10,7 @@ import type { DaemonConfig } from './config.js'
 import { DAEMON_HOST, DAEMON_PORT_DEFAULT } from './constants.js'
 import { buildModelPickerOptions } from './models.js'
 import {
-  resolveDaemonFirecrawlMode,
-  resolveDaemonMarkdownMode,
-  resolveDaemonMaxOutputTokens,
-  resolveDaemonPreprocessMode,
-  resolveDaemonRetries,
-  resolveDaemonTimeoutMs,
-  resolveDaemonYoutubeMode,
+  resolveDaemonRunOverrides,
 } from './request-settings.js'
 import { streamSummaryForUrl, streamSummaryForVisiblePage } from './summarize.js'
 
@@ -300,13 +294,15 @@ export async function runDaemonServer({
           typeof obj.maxCharacters === 'number' && Number.isFinite(obj.maxCharacters)
             ? obj.maxCharacters
             : null
-        const firecrawlMode = resolveDaemonFirecrawlMode(obj.firecrawl)
-        const markdownMode = resolveDaemonMarkdownMode(obj.markdownMode)
-        const preprocessMode = resolveDaemonPreprocessMode(obj.preprocess)
-        const youtubeMode = resolveDaemonYoutubeMode(obj.youtube)
-        const timeoutMs = resolveDaemonTimeoutMs(obj.timeout)
-        const retries = resolveDaemonRetries(obj.retries)
-        const maxOutputTokensArg = resolveDaemonMaxOutputTokens(obj.maxOutputTokens)
+        const overrides = resolveDaemonRunOverrides({
+          firecrawl: obj.firecrawl,
+          markdownMode: obj.markdownMode,
+          preprocess: obj.preprocess,
+          youtube: obj.youtube,
+          timeout: obj.timeout,
+          retries: obj.retries,
+          maxOutputTokens: obj.maxOutputTokens,
+        })
         const hasText = Boolean(textContent.trim())
         if (!pageUrl || !/^https?:\/\//i.test(pageUrl)) {
           json(res, 400, { ok: false, error: 'missing url' }, cors)
@@ -361,16 +357,6 @@ export async function runDaemonServer({
             const requestCache: CacheState = noCache
               ? { ...cacheState, mode: 'bypass' as const, store: null }
               : cacheState
-
-            const overrides = {
-              firecrawlMode,
-              markdownMode,
-              preprocessMode,
-              youtubeMode,
-              timeoutMs,
-              retries,
-              maxOutputTokensArg,
-            }
 
             const runWithMode = async (resolved: 'url' | 'page') => {
               return resolved === 'url'
