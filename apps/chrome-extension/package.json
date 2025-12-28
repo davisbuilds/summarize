@@ -7,7 +7,7 @@
     "dev": "wxt dev",
     "build": "wxt build",
     "lint": "wxt lint",
-    "test:e2e": "pnpm -C apps/chrome-extension build && playwright test -c playwright.config.ts"
+    "test:e2e": "pnpm build && playwright test -c playwright.config.ts"
   },
   "dependencies": {
     "@mozilla/readability": "0.6.0",

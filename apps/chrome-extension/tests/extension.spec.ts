@@ -1,10 +1,12 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import type { BrowserContext } from '@playwright/test'
 import { chromium, expect, test } from '@playwright/test'
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const extensionPath = path.resolve(__dirname, '..', '.output', 'chrome-mv3')
 const consoleErrorAllowlist: RegExp[] = []
 
