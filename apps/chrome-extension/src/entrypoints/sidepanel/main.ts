@@ -164,17 +164,29 @@ function setBaseTitle(text: string) {
 
 function setStatus(text: string) {
   statusText = text
-  if (streaming) {
-    const split = splitStatusPercent(text)
-    if (split.percent && summaryFromCache !== true) {
-      showProgress = true
+  const trimmed = text.trim()
+  const isError =
+    trimmed.length > 0 &&
+    (trimmed.toLowerCase().startsWith('error:') || trimmed.toLowerCase().includes(' error'))
+  const split = splitStatusPercent(text)
+  if (split.percent && summaryFromCache !== true) {
+    showProgress = true
+    if (progressTimer) {
+      clearTimeout(progressTimer)
+      progressTimer = 0
+    }
+  } else if (!showProgress && trimmed && summaryFromCache !== true && !isError) {
+    if (streaming) {
+      armProgress()
+    } else {
       if (progressTimer) {
         clearTimeout(progressTimer)
         progressTimer = 0
       }
-    } else if (!showProgress && text.trim() && summaryFromCache !== true) {
-      armProgress()
+      showProgress = true
     }
+  } else if (!trimmed && !streaming) {
+    stopProgress()
   }
   updateHeader()
 }
