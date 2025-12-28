@@ -62,7 +62,6 @@ describe('chrome/settings', () => {
   it('normalizes advanced overrides on save', async () => {
     await saveSettings({
       ...defaultSettings,
-      advancedOverrides: true,
       requestMode: 'URL',
       firecrawlMode: 'Always',
       markdownMode: 'LLM',
@@ -74,7 +73,6 @@ describe('chrome/settings', () => {
     })
 
     const raw = storage.settings as Record<string, unknown>
-    expect(raw.advancedOverrides).toBe(true)
     expect(raw.requestMode).toBe('url')
     expect(raw.firecrawlMode).toBe('always')
     expect(raw.markdownMode).toBe('llm')

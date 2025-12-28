@@ -24,8 +24,8 @@ const languageCustomEl = byId<HTMLInputElement>('languageCustom')
 const promptOverrideEl = byId<HTMLTextAreaElement>('promptOverride')
 const autoToggleRoot = byId<HTMLDivElement>('autoToggle')
 const maxCharsEl = byId<HTMLInputElement>('maxChars')
-const advancedToggleRoot = byId<HTMLDivElement>('advancedToggle')
 const advancedFieldsEl = byId<HTMLDivElement>('advancedFields')
+const advancedToggleEl = byId<HTMLButtonElement>('advancedToggle')
 const requestModeEl = byId<HTMLSelectElement>('requestMode')
 const firecrawlModeEl = byId<HTMLSelectElement>('firecrawlMode')
 const markdownModeEl = byId<HTMLSelectElement>('markdownMode')
@@ -41,7 +41,7 @@ const buildInfoEl = document.getElementById('buildInfo')
 const daemonStatusEl = byId<HTMLDivElement>('daemonStatus')
 
 let autoValue = defaultSettings.autoSummarize
-let advancedOverrides = defaultSettings.advancedOverrides
+let advancedOpen = false
 
 const setStatus = (text: string) => {
   statusEl.textContent = text
@@ -314,23 +314,9 @@ const autoToggle = mountCheckbox(autoToggleRoot, {
   },
 })
 
-const advancedToggle = mountCheckbox(advancedToggleRoot, {
-  id: 'options-advanced',
-  label: 'Enable advanced overrides',
-  checked: advancedOverrides,
-  onCheckedChange: (checked) => {
-    advancedOverrides = checked
-    updateAdvancedVisibility()
-  },
-})
-
 const updateAdvancedVisibility = () => {
-  advancedFieldsEl.hidden = !advancedOverrides
-  const controls = advancedFieldsEl.querySelectorAll('input, select, textarea')
-  controls.forEach((el) => {
-    ;(el as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).disabled =
-      !advancedOverrides
-  })
+  advancedFieldsEl.hidden = !advancedOpen
+  advancedToggleEl.setAttribute('aria-expanded', advancedOpen ? 'true' : 'false')
 }
 
 async function load() {
@@ -356,23 +342,13 @@ async function load() {
     },
   })
   maxCharsEl.value = String(s.maxChars)
-  advancedOverrides = s.advancedOverrides
-  advancedToggle.update({
-    id: 'options-advanced',
-    label: 'Enable advanced overrides',
-    checked: advancedOverrides,
-    onCheckedChange: (checked) => {
-      advancedOverrides = checked
-      updateAdvancedVisibility()
-    },
-  })
   requestModeEl.value = s.requestMode
   firecrawlModeEl.value = s.firecrawlMode
   markdownModeEl.value = s.markdownMode
   preprocessModeEl.value = s.preprocessMode
   youtubeModeEl.value = s.youtubeMode
   timeoutEl.value = s.timeout
-  retriesEl.value = String(s.retries)
+  retriesEl.value = typeof s.retries === 'number' ? String(s.retries) : ''
   maxOutputTokensEl.value = s.maxOutputTokens
   fontFamilyEl.value = s.fontFamily
   fontSizeEl.value = String(s.fontSize)
@@ -410,6 +386,11 @@ languagePresetEl.addEventListener('change', () => {
   if (!languageCustomEl.hidden) languageCustomEl.focus()
 })
 
+advancedToggleEl.addEventListener('click', () => {
+  advancedOpen = !advancedOpen
+  updateAdvancedVisibility()
+})
+
 modelPresetEl.addEventListener('change', () => {
   modelCustomEl.hidden = modelPresetEl.value !== 'custom'
   if (!modelCustomEl.hidden) modelCustomEl.focus()
@@ -432,7 +413,6 @@ formEl.addEventListener('submit', (e) => {
       promptOverride: promptOverrideEl.value || defaultSettings.promptOverride,
       autoSummarize: autoValue,
       maxChars: Number(maxCharsEl.value) || defaultSettings.maxChars,
-      advancedOverrides,
       requestMode: requestModeEl.value || defaultSettings.requestMode,
       firecrawlMode: firecrawlModeEl.value || defaultSettings.firecrawlMode,
       markdownMode: markdownModeEl.value || defaultSettings.markdownMode,

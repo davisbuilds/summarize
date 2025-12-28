@@ -17,9 +17,19 @@ export function buildDaemonRequestBody({
   noCache?: boolean
 }): Record<string, unknown> {
   const promptOverride = settings.promptOverride?.trim()
-  const advancedEnabled = settings.advancedOverrides
   const maxOutputTokens = settings.maxOutputTokens?.trim()
   const timeout = settings.timeout?.trim()
+  const overrides: Record<string, unknown> = {}
+  if (settings.requestMode) overrides.mode = settings.requestMode
+  if (settings.firecrawlMode) overrides.firecrawl = settings.firecrawlMode
+  if (settings.markdownMode) overrides.markdownMode = settings.markdownMode
+  if (settings.preprocessMode) overrides.preprocess = settings.preprocessMode
+  if (settings.youtubeMode) overrides.youtube = settings.youtubeMode
+  if (timeout) overrides.timeout = timeout
+  if (typeof settings.retries === 'number' && Number.isFinite(settings.retries)) {
+    overrides.retries = settings.retries
+  }
+  if (maxOutputTokens) overrides.maxOutputTokens = maxOutputTokens
   return {
     url: extracted.url,
     title: extracted.title,
@@ -30,18 +40,7 @@ export function buildDaemonRequestBody({
     language: settings.language,
     ...(promptOverride ? { prompt: promptOverride } : {}),
     ...(noCache ? { noCache: true } : {}),
-    ...(advancedEnabled
-      ? {
-          mode: settings.requestMode,
-          firecrawl: settings.firecrawlMode,
-          markdownMode: settings.markdownMode,
-          preprocess: settings.preprocessMode,
-          youtube: settings.youtubeMode,
-          ...(timeout ? { timeout } : {}),
-          ...(Number.isFinite(settings.retries) ? { retries: settings.retries } : {}),
-          ...(maxOutputTokens ? { maxOutputTokens } : {}),
-        }
-      : { mode: 'auto' }),
+    ...overrides,
     maxCharacters: settings.maxChars,
   }
 }

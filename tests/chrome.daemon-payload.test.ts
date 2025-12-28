@@ -23,12 +23,11 @@ describe('chrome/daemon-payload', () => {
       model: 'auto',
       length: 'xl',
       language: 'auto',
-      mode: 'auto',
       maxCharacters: defaultSettings.maxChars,
     })
   })
 
-  it('includes advanced overrides when enabled', () => {
+  it('includes advanced overrides when set', () => {
     const body = buildDaemonRequestBody({
       extracted: {
         url: 'https://example.com/article',
@@ -39,7 +38,6 @@ describe('chrome/daemon-payload', () => {
       settings: {
         ...defaultSettings,
         token: 't',
-        advancedOverrides: true,
         requestMode: 'url',
         firecrawlMode: 'auto',
         markdownMode: 'llm',

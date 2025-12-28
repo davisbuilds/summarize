@@ -15,14 +15,13 @@ export type Settings = {
   language: string
   promptOverride: string
   maxChars: number
-  advancedOverrides: boolean
   requestMode: string
   firecrawlMode: string
   markdownMode: string
   preprocessMode: string
   youtubeMode: string
   timeout: string
-  retries: number
+  retries: number | null
   maxOutputTokens: string
   fontFamily: string
   fontSize: number
@@ -78,20 +77,18 @@ function normalizePromptOverride(value: unknown): string {
   return value
 }
 
-function normalizeAdvancedOverrides(value: unknown): boolean {
-  return typeof value === 'boolean' ? value : defaultSettings.advancedOverrides
-}
-
 function normalizeRequestMode(value: unknown): string {
   if (typeof value !== 'string') return defaultSettings.requestMode
   const trimmed = value.trim().toLowerCase()
-  if (trimmed === 'page' || trimmed === 'url' || trimmed === 'auto') return trimmed
+  if (!trimmed) return defaultSettings.requestMode
+  if (trimmed === 'page' || trimmed === 'url') return trimmed
   return defaultSettings.requestMode
 }
 
 function normalizeFirecrawlMode(value: unknown): string {
   if (typeof value !== 'string') return defaultSettings.firecrawlMode
   const trimmed = value.trim().toLowerCase()
+  if (!trimmed) return defaultSettings.firecrawlMode
   if (trimmed === 'off' || trimmed === 'auto' || trimmed === 'always') return trimmed
   return defaultSettings.firecrawlMode
 }
@@ -99,6 +96,7 @@ function normalizeFirecrawlMode(value: unknown): string {
 function normalizeMarkdownMode(value: unknown): string {
   if (typeof value !== 'string') return defaultSettings.markdownMode
   const trimmed = value.trim().toLowerCase()
+  if (!trimmed) return defaultSettings.markdownMode
   if (trimmed === 'off' || trimmed === 'auto' || trimmed === 'llm' || trimmed === 'readability') {
     return trimmed
   }
@@ -108,6 +106,7 @@ function normalizeMarkdownMode(value: unknown): string {
 function normalizePreprocessMode(value: unknown): string {
   if (typeof value !== 'string') return defaultSettings.preprocessMode
   const trimmed = value.trim().toLowerCase()
+  if (!trimmed) return defaultSettings.preprocessMode
   if (trimmed === 'off' || trimmed === 'auto' || trimmed === 'always') return trimmed
   return defaultSettings.preprocessMode
 }
@@ -115,6 +114,7 @@ function normalizePreprocessMode(value: unknown): string {
 function normalizeYoutubeMode(value: unknown): string {
   if (typeof value !== 'string') return defaultSettings.youtubeMode
   const trimmed = value.trim().toLowerCase()
+  if (!trimmed) return defaultSettings.youtubeMode
   if (
     trimmed === 'auto' ||
     trimmed === 'web' ||
@@ -134,9 +134,16 @@ function normalizeTimeout(value: unknown): string {
   return trimmed
 }
 
-function normalizeRetries(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return defaultSettings.retries
-  const intValue = Math.trunc(value)
+function normalizeRetries(value: unknown): number | null {
+  if (value == null || value === '') return defaultSettings.retries
+  const numeric =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number(value.trim())
+        : Number.NaN
+  if (!Number.isFinite(numeric)) return defaultSettings.retries
+  const intValue = Math.trunc(numeric)
   if (intValue < 0 || intValue > 5) return defaultSettings.retries
   return intValue
 }
@@ -154,14 +161,13 @@ export const defaultSettings: Settings = {
   language: 'auto',
   promptOverride: '',
   maxChars: 120_000,
-  advancedOverrides: false,
-  requestMode: 'auto',
-  firecrawlMode: 'off',
-  markdownMode: 'readability',
-  preprocessMode: 'off',
-  youtubeMode: 'auto',
-  timeout: '2m',
-  retries: 1,
+  requestMode: '',
+  firecrawlMode: '',
+  markdownMode: '',
+  preprocessMode: '',
+  youtubeMode: '',
+  timeout: '',
+  retries: null,
   maxOutputTokens: '',
   fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif',
   fontSize: 14,
@@ -183,7 +189,6 @@ export async function loadSettings(): Promise<Settings> {
     autoSummarize:
       typeof raw.autoSummarize === 'boolean' ? raw.autoSummarize : defaultSettings.autoSummarize,
     maxChars: typeof raw.maxChars === 'number' ? raw.maxChars : defaultSettings.maxChars,
-    advancedOverrides: normalizeAdvancedOverrides(raw.advancedOverrides),
     requestMode: normalizeRequestMode(raw.requestMode),
     firecrawlMode: normalizeFirecrawlMode(raw.firecrawlMode),
     markdownMode: normalizeMarkdownMode(raw.markdownMode),
@@ -207,7 +212,6 @@ export async function saveSettings(settings: Settings): Promise<void> {
       length: normalizeLength(settings.length),
       language: normalizeLanguage(settings.language),
       promptOverride: normalizePromptOverride(settings.promptOverride),
-      advancedOverrides: normalizeAdvancedOverrides(settings.advancedOverrides),
       requestMode: normalizeRequestMode(settings.requestMode),
       firecrawlMode: normalizeFirecrawlMode(settings.firecrawlMode),
       markdownMode: normalizeMarkdownMode(settings.markdownMode),
