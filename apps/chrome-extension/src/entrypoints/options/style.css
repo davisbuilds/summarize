@@ -421,36 +421,18 @@ form {
   pointer-events: auto;
 }
 
-details.advanced {
+.advancedPanel {
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--surface);
   padding: 6px 10px;
 }
 
-details.advanced > summary {
-  cursor: pointer;
-  user-select: none;
-  list-style: none;
+.advancedTitle {
   color: var(--muted);
   font-size: 12px;
   font-weight: 900;
   letter-spacing: 0.3px;
-}
-
-details.advanced > summary::-webkit-details-marker {
-  display: none;
-}
-
-details.advanced > summary::after {
-  content: "▸";
-  float: right;
-  color: color-mix(in srgb, var(--muted) 85%, transparent);
-  transform: translateY(1px);
-}
-
-details.advanced[open] > summary::after {
-  content: "▾";
 }
 
 .advancedGrid {
