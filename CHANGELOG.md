@@ -4,78 +4,36 @@
 
 ### Highlights
 
-- Chrome Side Panel: **Chat mode** with metrics bar (advanced toggle, default on). Thanks @dougvk.
-- Chrome Side Panel chat: send full transcript + summary context (skip summary for oversized transcripts), include extraction metadata (duration + transcription method), jump-to-latest, and improved auto-scroll + loading states.
-- Chrome extension: optional hover tooltip summaries for links (advanced setting, default off; marked experimental).
+- Chrome Side Panel: **Chat mode** with metrics bar, message queue, and improved context (full transcript + summary metadata, jump-to-latest, smoother auto-scroll).
+- Media-aware summarization in the Side Panel: Page vs Video/Audio dropdown, automatic media preference on video sites, plus visible word count/duration.
+- Chrome extension: optional hover tooltip summaries for links (advanced setting, default off; experimental) with prompt customization.
 
 ### Improvements
 
-- PDF inputs: send PDFs directly to Anthropic/OpenAI/Gemini when supported (skip markitdown preprocessing).
-- Daemon: add `/v1/chat` and `extractOnly` support to reuse URL extraction for chat.
-- Daemon logging: optional JSON log file with rotation; extension toggle can send full input/output for debugging.
-- Chrome Side Panel: advanced model picker plus “Scan free” to refresh OpenRouter free-model candidates from the sidebar.
-- Chrome Side Panel chat: queue up to 10 messages, show a one-line queue with remove buttons, and auto-send when idle.
-- Chrome Side Panel: length preset tooltips now show target ranges + paragraph guidance (aligned with core prompt constraints).
-- Chrome Side Panel: add refresh summary control and bypass cache for explicit refreshes.
-- Chrome Side Panel: status text now says “Connecting…” during daemon handshake.
-- Chrome Side Panel: show page word count and video duration in the summarize source dropdown.
-- Chrome Side Panel: tighten the summarize source dropdown width.
-- Chrome Side Panel: prefer media on video/podcast sites and show selected source on the summarize button.
-- Chrome Side Panel: replace font size slider with A/AA toggle and label San Francisco explicitly.
-- Chrome Side Panel: widen font selector and unify model control into a single row.
-- Chrome Side Panel: show the top free model after “Scan free” completes.
-- Chrome Side Panel: add mode icons to the mode picker.
-- Chrome Side Panel: align size control to match pickers and add line-height controls.
-- Chrome Side Panel: align size and line-height controls with length picker height.
-- Chrome Side Panel: refine line-height control icons.
-- Chrome Side Panel: equalize drawer control heights for length/size/line controls.
-- Chrome Side Panel: move auto summarize toggle into the Advanced drawer section.
-- Chrome Side Panel: sync font size and line height updates across panels.
-- Chrome Side Panel: move refresh/advanced actions into the Advanced drawer section.
-- Chrome Side Panel: consolidate Advanced layout into a model row plus an auto/actions row.
-- Chrome Side Panel: nudge summarize dropdown caret alignment.
-- Chrome Side Panel: Summarize button becomes a dropdown when media is detected (Page vs Video/Audio).
-- Hover summaries: prompt customization and tighter prompts for cleaner tooltips.
-- Daemon: expose version in health, plus a status pill in the Side Panel header.
-- Daemon CLI: retry health/auth checks on restart/install to avoid false negatives during startup (waits up to ~30s).
-- Chrome Side Panel: streamline setup panel with install toggle and inline copy buttons.
-- Chrome extension: reorganize settings (daemon status pill + core toggles at top), and split advanced overrides into a two‑column grid.
-- Chrome Side Panel: dynamically shorten `openrouter/` to `or/` in the metrics footer when it wraps; streaming flushes without newline gating for faster panel updates.
-- Chrome extension UI: tune layout, pickers, progress bars, header status, and advanced overrides for tighter, more stable controls.
-- Chrome extension options: add Summarize site link to footer.
+- PDF + asset handling: send PDFs directly to Anthropic/OpenAI/Gemini when supported; generic PDF attachments and better media URL detection.
+- Daemon: `/v1/chat` + `extractOnly`, version in health/status pill, optional JSON log with rotation, and more resilient restart/install health checks.
+- Side Panel: advanced model row with “Scan free” (shows top free model after scan), a refresh summary control (cache bypass), plus richer length tooltips.
+- Side Panel UX: consolidated advanced layout and typography controls (font size A/AA, line-height), streamlined setup panel with inline copy, clearer status text, and tighter model/length controls.
+- Side Panel UX: keep the Auto summarize toggle on one line in Advanced.
+- Streaming/metrics polish: faster stream flushes, shorter OpenRouter labels on wrap, and improved extraction metadata in chat.
 
 ### Fixes
 
 - Auto model selection: OpenRouter fallback now resolves provider-specific ids (dash/dot slug normalization) and skips fallback when no unique match.
 - Language auto: default to English when detection is uncertain.
 - OpenAI GPT-5: skip `temperature` in streaming requests to avoid 400s for unsupported params.
-- Chrome Side Panel: show a retryable error state when the daemon stream fails or stalls instead of silently hanging.
-- Chrome Side Panel: avoid startup crash when a run is aborted while a request is in flight.
-- Chrome Side Panel chat: when a video page was previously summarized from page text, chat now re-extracts via the daemon so duration + transcription metadata are included.
-- Chrome Side Panel: align summarize dropdown caret with label.
-- Chrome Side Panel: hide chat input immediately when chat mode is disabled in settings.
+- Side Panel stability: retryable stream errors, no abort crash, auto-summarize on open/source switch, synced chat toggle state, and caret alignment.
+- YouTube duration handling: player API/HTML/yt-dlp fallbacks, transcript metadata propagation, and extension duration fallbacks.
+- URL extraction: preserve final redirected URLs so shorteners (t.co) summarize the real destination.
+- Hover summaries: proxy localhost daemon calls to avoid Chrome “Local network access” prompts.
 - Install: use npm releases for osc-progress/tokentally instead of git deps.
-- Chrome Side Panel: auto-summarize now kicks when opening the side panel.
-- Chrome Side Panel: switching Page/Video source auto-reruns when auto-summarize is enabled.
-- YouTube transcripts: propagate duration into transcript metadata so chat can answer “how long is this video?” reliably.
-- Chrome Side Panel chat: tighten bottom padding so the input dock doesn't leave excess gap.
-- YouTube transcripts: fall back to the YouTube player API for duration when the watch HTML omits it.
 
 ### Dev
 
-- Ignore packed `.tgz`/`.zip` artifacts in git.
-- YouTube transcripts: fall back to yt-dlp metadata for duration when API and HTML data are missing.
-- Chrome Side Panel chat: fall back to content-script video duration when URL extraction has no duration metadata.
-- Tests: cover extension duration parsing and precedence.
-- Tests: cover side panel free-model refresh error and options footer link.
-- Tests: add extension e2e coverage for content-script duration metadata and run extension e2e in root `pnpm -s check`.
-- Tests: add GPT-5 temperature regression for stream/generate + live stream smoke for gpt-5-mini.
-- CI: root `pnpm -s check` now exercises extension e2e coverage.
-- Hover summaries: hide tooltips on error pages, show only after the first streamed chunk, avoid recycled-anchor mismatches, add hover debug logging when extended logging is enabled, and suppress native title tooltips while hover summaries are visible.
-- Chrome extension: avoid Chrome “Local network access” prompts for hover summaries by proxying localhost daemon calls through the background service worker.
-- URL extraction: preserve final redirected URL so shorteners (t.co) summarize the real destination.
+- CI/check now runs extension e2e; expanded coverage for media duration, hover summaries, free-model refresh, and GPT‑5 streaming.
+- Tooling: ignore packed `.tgz`/`.zip` artifacts in git.
 
-## 0.8.0 - 2025-12-28
+## 0.8.2 - 2025-12-28
 
 ### Breaking
 
@@ -106,6 +64,10 @@
 - Core: expose lightweight URL helpers at `@steipete/summarize-core/content/url` (YouTube/Twitter/podcast/direct-media detection).
 - Chrome Side Panel: new icon + extension `homepage_url` set to `summarize.sh`.
 - Providers: add configurable API base URLs (config + env) for OpenAI/Anthropic/Google/xAI (thanks @bunchjesse for the nudge).
+
+### Fixes
+
+- Packaging: ensure runtime deps and core tarball are included in published CLI bundles.
 
 ### Improvements
 
@@ -350,6 +312,12 @@
 - Avoid Firecrawl fallback when block keywords only appear in scripts/styles.
 - Add a Bird install tip when Twitter/X fetch fails without bird installed.
 - Graceful error when tweet extraction fails after bird + Nitter fallback.
+
+## 0.1.2 - 2025-12-20
+
+### Fixes
+
+- Release tooling: repair script quoting (no user-visible changes).
 
 ## 0.1.1 - 2025-12-19
 

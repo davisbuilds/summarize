@@ -777,6 +777,7 @@ button.ghost:hover {
   gap: 10px;
   cursor: pointer;
   user-select: none;
+  white-space: nowrap;
 }
 
 .drawer .checkboxRoot {
@@ -893,6 +894,7 @@ button.ghost:hover {
 
 .drawerAdvancedRow .toggleRow {
   flex: 1;
+  min-width: 160px;
 }
 
 .drawerAdvancedActions {
