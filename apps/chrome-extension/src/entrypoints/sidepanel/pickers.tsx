@@ -8,6 +8,8 @@ import type { ColorMode, ColorScheme } from '../../lib/theme'
 import { getOverlayRoot } from '../../ui/portal'
 import { SchemeChips } from '../../ui/scheme-chips'
 import { type SelectItem, useZagSelect } from '../../ui/zag-select'
+import type { SummaryLength } from '@steipete/summarize-core'
+import { SUMMARY_LENGTH_SPECS } from '@steipete/summarize-core/prompts'
 
 type SidepanelPickerState = {
   scheme: ColorScheme
@@ -32,14 +34,33 @@ const lengthPresets = ['short', 'medium', 'long', 'xl', 'xxl', '20k']
 const MIN_CUSTOM_LENGTH_CHARS = 10
 const LENGTH_COUNT_PATTERN = /^(?<value>\d+(?:\.\d+)?)(?<unit>k|m)?$/i
 
-const lengthItems: SelectItem[] = [
-  { value: 'short', label: 'Short' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'long', label: 'Long' },
-  { value: 'xl', label: 'XL' },
-  { value: 'xxl', label: 'XXL' },
-  { value: '20k', label: '20k' },
-  { value: 'custom', label: 'Custom…' },
+type LengthItem = SelectItem & { tooltip?: string }
+
+const lengthLabels: Record<SummaryLength, string> = {
+  short: 'Short',
+  medium: 'Medium',
+  long: 'Long',
+  xl: 'Extra Large (XL)',
+  xxl: 'Extra Extra Large (XXL)',
+}
+
+const formatCount = (value: number) => value.toLocaleString()
+
+const formatLengthTooltip = (preset: SummaryLength): string => {
+  const spec = SUMMARY_LENGTH_SPECS[preset]
+  return `${lengthLabels[preset]}: target ~${formatCount(spec.targetCharacters)} chars (${formatCount(
+    spec.minCharacters
+  )}-${formatCount(spec.maxCharacters)}). ${spec.formatting}`
+}
+
+const lengthItems: LengthItem[] = [
+  { value: 'short', label: 'Short', tooltip: formatLengthTooltip('short') },
+  { value: 'medium', label: 'Medium', tooltip: formatLengthTooltip('medium') },
+  { value: 'long', label: 'Long', tooltip: formatLengthTooltip('long') },
+  { value: 'xl', label: 'XL', tooltip: formatLengthTooltip('xl') },
+  { value: 'xxl', label: 'XXL', tooltip: formatLengthTooltip('xxl') },
+  { value: '20k', label: '20k', tooltip: 'Custom target around 20,000 characters (soft guideline).' },
+  { value: 'custom', label: 'Custom…', tooltip: 'Set a custom length like 1500, 20k, or 1.5k.' },
 ]
 
 const schemeItems: SelectItem[] = [
@@ -233,6 +254,7 @@ function LengthField({
               key={item.value}
               className="pickerOption"
               style={item.value === 'custom' ? { gridColumn: '1 / -1' } : undefined}
+              title={item.tooltip}
               {...api.getItemProps({ item })}
             >
               {item.label}
