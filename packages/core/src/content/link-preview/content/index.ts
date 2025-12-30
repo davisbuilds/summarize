@@ -407,6 +407,7 @@ export async function fetchLinkContent(
       cacheMode,
       maxCharacters,
       youtubeTranscriptMode,
+      mediaTranscriptMode,
       firecrawlDiagnostics,
       markdownRequested,
       markdownMode,
