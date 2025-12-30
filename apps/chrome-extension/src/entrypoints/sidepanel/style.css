@@ -666,7 +666,7 @@ button.ghost:hover {
   border-radius: 12px;
   background: var(--field-bg);
   overflow: hidden;
-  min-height: 34px;
+  min-height: 32px;
   width: 100%;
 }
 
@@ -681,10 +681,34 @@ button.ghost:hover {
   font-weight: 700;
   line-height: 1;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
 .sizeBtnLg {
   font-size: 14px;
+}
+
+.sizeBtn::after {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background:
+    linear-gradient(var(--muted), var(--muted)) 0 1px/10px 1px,
+    linear-gradient(var(--muted), var(--muted)) 0 4px/10px 1px,
+    linear-gradient(var(--muted), var(--muted)) 0 7px/10px 1px;
+  background-repeat: no-repeat;
+  opacity: 0.6;
+}
+
+.sizeBtnLg::after {
+  background:
+    linear-gradient(var(--muted), var(--muted)) 0 0/10px 1px,
+    linear-gradient(var(--muted), var(--muted)) 0 4px/10px 1px,
+    linear-gradient(var(--muted), var(--muted)) 0 8px/10px 1px;
 }
 
 .sizeBtn:disabled {
