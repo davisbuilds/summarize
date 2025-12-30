@@ -42,8 +42,6 @@ describe('sidepanel/chat-state', () => {
       { id: '2', role: 'user', content: '', timestamp: 2 },
     ]
 
-    expect(buildChatRequestMessages(messages)).toEqual([
-      { role: 'assistant', content: 'hi' },
-    ])
+    expect(buildChatRequestMessages(messages)).toEqual([{ role: 'assistant', content: 'hi' }])
   })
 })

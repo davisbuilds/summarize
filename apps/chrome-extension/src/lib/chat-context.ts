@@ -96,10 +96,7 @@ function buildMetadataBlock(metadata?: ChatContextMetadata): string {
   if (typeof metadata.wordCount === 'number' && Number.isFinite(metadata.wordCount)) {
     contentParts.push(`${metadata.wordCount.toLocaleString()} words`)
   }
-  if (
-    typeof metadata.totalCharacters === 'number' &&
-    Number.isFinite(metadata.totalCharacters)
-  ) {
+  if (typeof metadata.totalCharacters === 'number' && Number.isFinite(metadata.totalCharacters)) {
     contentParts.push(`${metadata.totalCharacters.toLocaleString()} chars`)
   }
   if (contentParts.length) lines.push(`Content size: ${contentParts.join(' · ')}`)
@@ -117,10 +114,7 @@ function buildMetadataBlock(metadata?: ChatContextMetadata): string {
   ) {
     transcriptParts.push(`${metadata.transcriptCharacters.toLocaleString()} chars`)
   }
-  if (
-    typeof metadata.transcriptLines === 'number' &&
-    Number.isFinite(metadata.transcriptLines)
-  ) {
+  if (typeof metadata.transcriptLines === 'number' && Number.isFinite(metadata.transcriptLines)) {
     transcriptParts.push(`${metadata.transcriptLines.toLocaleString()} lines`)
   }
   if (transcriptParts.length) lines.push(`Transcript size: ${transcriptParts.join(' · ')}`)

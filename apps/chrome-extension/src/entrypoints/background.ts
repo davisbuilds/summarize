@@ -1,6 +1,5 @@
-import { defineBackground } from 'wxt/utils/define-background'
-
 import { shouldPreferUrlMode } from '@steipete/summarize-core/content/url'
+import { defineBackground } from 'wxt/utils/define-background'
 import { parseSseEvent } from '../../../../src/shared/sse-events.js'
 import { buildChatPageContent } from '../lib/chat-context'
 import { buildDaemonRequestBody } from '../lib/daemon-payload'
@@ -295,8 +294,7 @@ export default defineBackground(() => {
         const extracted = extractedAttempt.data
         const text = extracted.text.trim()
         if (text.length >= MIN_CHAT_CHARS) {
-          const wordCount =
-            text.length > 0 ? text.split(/\s+/).filter(Boolean).length : 0
+          const wordCount = text.length > 0 ? text.split(/\s+/).filter(Boolean).length : 0
           const next = {
             url: extracted.url,
             title: extracted.title ?? tab.title?.trim() ?? null,
@@ -722,9 +720,9 @@ export default defineBackground(() => {
                   extractionStrategy:
                     cachedExtract.source === 'page'
                       ? 'readability (content script)'
-                      : cachedExtract.diagnostics?.strategy ?? null,
+                      : (cachedExtract.diagnostics?.strategy ?? null),
                   markdownProvider: cachedExtract.diagnostics?.markdown?.used
-                    ? cachedExtract.diagnostics?.markdown?.provider ?? 'unknown'
+                    ? (cachedExtract.diagnostics?.markdown?.provider ?? 'unknown')
                     : null,
                   firecrawlUsed: cachedExtract.diagnostics?.firecrawl?.used ?? null,
                   transcriptSource: cachedExtract.transcriptSource,

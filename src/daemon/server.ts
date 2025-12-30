@@ -9,11 +9,15 @@ import { resolveRunOverrides } from '../run/run-settings.js'
 import { encodeSseEvent, type SseEvent } from '../shared/sse-events.js'
 import { resolvePackageVersion } from '../version.js'
 import { type DaemonRequestedMode, resolveAutoDaemonMode } from './auto-mode.js'
+import { streamChatResponse } from './chat.js'
 import type { DaemonConfig } from './config.js'
 import { DAEMON_HOST, DAEMON_PORT_DEFAULT } from './constants.js'
 import { buildModelPickerOptions } from './models.js'
-import { extractContentForUrl, streamSummaryForUrl, streamSummaryForVisiblePage } from './summarize.js'
-import { streamChatResponse } from './chat.js'
+import {
+  extractContentForUrl,
+  streamSummaryForUrl,
+  streamSummaryForVisiblePage,
+} from './summarize.js'
 
 type SessionEvent = SseEvent
 
@@ -610,7 +614,8 @@ export async function runDaemonServer({
               pageTitle,
               pageContent,
               messages: messages as Array<{ role: 'user' | 'assistant'; content: string }>,
-              modelOverride: modelOverride && modelOverride.toLowerCase() !== 'auto' ? modelOverride : null,
+              modelOverride:
+                modelOverride && modelOverride.toLowerCase() !== 'auto' ? modelOverride : null,
               pushToSession: (evt) => pushToSession(session, evt),
               emitMeta: (patch) => emitMeta(session, patch),
             })

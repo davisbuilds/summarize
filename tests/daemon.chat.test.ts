@@ -36,7 +36,10 @@ describe('daemon/chat', () => {
     await streamChatResponse({
       env: { HOME: home },
       fetchImpl: fetch,
-      session: { id: 's1', lastMeta: { model: null, modelLabel: null, inputSummary: null, summaryFromCache: null } },
+      session: {
+        id: 's1',
+        lastMeta: { model: null, modelLabel: null, inputSummary: null, summaryFromCache: null },
+      },
       pageUrl: 'https://example.com',
       pageTitle: 'Example',
       pageContent: 'Hello world',
@@ -62,7 +65,10 @@ describe('daemon/chat', () => {
     await streamChatResponse({
       env: { HOME: home, OPENROUTER_API_KEY: 'test' },
       fetchImpl: fetch,
-      session: { id: 's2', lastMeta: { model: null, modelLabel: null, inputSummary: null, summaryFromCache: null } },
+      session: {
+        id: 's2',
+        lastMeta: { model: null, modelLabel: null, inputSummary: null, summaryFromCache: null },
+      },
       pageUrl: 'https://example.com',
       pageTitle: null,
       pageContent: 'Hello world',
@@ -100,7 +106,10 @@ describe('daemon/chat', () => {
     await streamChatResponse({
       env: { HOME: home },
       fetchImpl: fetch,
-      session: { id: 's3', lastMeta: { model: null, modelLabel: null, inputSummary: null, summaryFromCache: null } },
+      session: {
+        id: 's3',
+        lastMeta: { model: null, modelLabel: null, inputSummary: null, summaryFromCache: null },
+      },
       pageUrl: 'https://example.com',
       pageTitle: null,
       pageContent: 'Hello world',

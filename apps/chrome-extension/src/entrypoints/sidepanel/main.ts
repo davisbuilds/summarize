@@ -7,7 +7,7 @@ import { applyTheme } from '../../lib/theme'
 import { generateToken } from '../../lib/token'
 import { mountCheckbox } from '../../ui/zag-checkbox'
 import { ChatController } from './chat-controller'
-import { compactChatHistory, type ChatHistoryLimits } from './chat-state'
+import { type ChatHistoryLimits, compactChatHistory } from './chat-state'
 import { createHeaderController } from './header-controller'
 import { mountSidepanelLengthPicker, mountSidepanelPickers } from './pickers'
 import { createStreamController } from './stream-controller'
@@ -66,7 +66,6 @@ const drawerToggleBtn = byId<HTMLButtonElement>('drawerToggle')
 const refreshBtn = byId<HTMLButtonElement>('refresh')
 const advancedBtn = byId<HTMLButtonElement>('advanced')
 const autoToggleRoot = byId<HTMLDivElement>('autoToggle')
-const hoverToggleRoot = byId<HTMLDivElement>('hoverToggle')
 const lengthRoot = byId<HTMLDivElement>('lengthRoot')
 const pickersRoot = byId<HTMLDivElement>('pickersRoot')
 const sizeEl = byId<HTMLInputElement>('size')
@@ -96,7 +95,6 @@ const panelState: PanelState = {
 }
 let drawerAnimation: Animation | null = null
 let autoValue = false
-let hoverSummariesValue = defaultSettings.hoverSummaries
 let chatEnabledValue = defaultSettings.chatEnabled
 
 const MAX_CHAT_MESSAGES = 1000
@@ -569,30 +567,6 @@ const autoToggle = mountCheckbox(autoToggleRoot, {
   },
 })
 
-const hoverToggle = mountCheckbox(hoverToggleRoot, {
-  id: 'sidepanel-hover',
-  label: 'Hover summaries',
-  checked: hoverSummariesValue,
-  onCheckedChange: (checked) => {
-    hoverSummariesValue = checked
-    void patchSettings({ hoverSummaries: checked })
-    syncHoverToggle()
-  },
-})
-
-function syncHoverToggle() {
-  hoverToggle.update({
-    id: 'sidepanel-hover',
-    label: 'Hover summaries',
-    checked: hoverSummariesValue,
-    onCheckedChange: (checked) => {
-      hoverSummariesValue = checked
-      void patchSettings({ hoverSummaries: checked })
-      syncHoverToggle()
-    },
-  })
-}
-
 function applyChatEnabled() {
   chatContainerEl.toggleAttribute('hidden', !chatEnabledValue)
   chatDockEl.toggleAttribute('hidden', !chatEnabledValue)
@@ -667,7 +641,8 @@ async function persistChatHistory() {
 async function restoreChatHistory() {
   const tabId = activeTabId
   if (!tabId) return
-  const loadId = (chatHistoryLoadId += 1)
+  chatHistoryLoadId += 1
+  const loadId = chatHistoryLoadId
   const history = await loadChatHistory(tabId)
   if (loadId !== chatHistoryLoadId || !history?.length) return
   const compacted = compactChatHistory(history, chatLimits)
@@ -841,7 +816,9 @@ function installStepsHtml({
         </button>
       </div>
       <p class="setup__hint" data-install-hint>${
-        isMac ? 'Homebrew installs the daemon-ready binary (macOS arm64).' : 'Homebrew tap is macOS-only.'
+        isMac
+          ? 'Homebrew installs the daemon-ready binary (macOS arm64).'
+          : 'Homebrew tap is macOS-only.'
       }</p>
     </div>
   `
@@ -946,9 +923,7 @@ function wireSetupButtons({
   const installTitleEl = setupEl.querySelector<HTMLElement>('[data-install-title]')
   const installCodeEl = setupEl.querySelector<HTMLElement>('[data-install-code]')
   const installHintEl = setupEl.querySelector<HTMLElement>('[data-install-hint]')
-  const installButtons = Array.from(
-    setupEl.querySelectorAll<HTMLButtonElement>('[data-install]')
-  )
+  const installButtons = Array.from(setupEl.querySelectorAll<HTMLButtonElement>('[data-install]'))
 
   const applyInstallMethod = (method: InstallMethod) => {
     const label = method === 'brew' ? 'Homebrew' : 'NPM'
@@ -1085,8 +1060,6 @@ function updateControls(state: UiState) {
       send({ type: 'panel:setAuto', value: checked })
     },
   })
-  hoverSummariesValue = state.settings.hoverSummaries
-  syncHoverToggle()
   chatEnabledValue = state.settings.chatEnabled
   applyChatEnabled()
   if (chatEnabledValue && activeTabId && chatController.getMessages().length === 0) {
@@ -1317,7 +1290,7 @@ chatInputEl.addEventListener('keydown', (e) => {
 })
 chatInputEl.addEventListener('input', () => {
   chatInputEl.style.height = 'auto'
-  chatInputEl.style.height = Math.min(chatInputEl.scrollHeight, 120) + 'px'
+  chatInputEl.style.height = `${Math.min(chatInputEl.scrollHeight, 120)}px`
 })
 
 sizeEl.addEventListener('input', () => {
@@ -1331,7 +1304,6 @@ void (async () => {
   const s = await loadSettings()
   sizeEl.value = String(s.fontSize)
   autoValue = s.autoSummarize
-  hoverSummariesValue = s.hoverSummaries
   chatEnabledValue = s.chatEnabled
   autoToggle.update({
     id: 'sidepanel-auto',
@@ -1340,15 +1312,6 @@ void (async () => {
     onCheckedChange: (checked) => {
       autoValue = checked
       send({ type: 'panel:setAuto', value: checked })
-    },
-  })
-  hoverToggle.update({
-    id: 'sidepanel-hover',
-    label: 'Hover summaries',
-    checked: hoverSummariesValue,
-    onCheckedChange: (checked) => {
-      hoverSummariesValue = checked
-      void patchSettings({ hoverSummaries: checked })
     },
   })
   applyChatEnabled()

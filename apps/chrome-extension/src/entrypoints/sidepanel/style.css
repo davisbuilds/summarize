@@ -1494,7 +1494,7 @@ button.setup__pill.isActive {
   display: none;
 }
 
-.chatContextStatus[data-state='warn'] {
+.chatContextStatus[data-state="warn"] {
   color: color-mix(in srgb, var(--accent) 65%, var(--text));
 }
 

@@ -2,9 +2,9 @@ import type MarkdownIt from 'markdown-it'
 
 import {
   buildChatRequestMessages,
+  type ChatHistoryLimits,
   computeChatContextUsage,
   hasUserChatMessage,
-  type ChatHistoryLimits,
 } from './chat-state'
 import type { ChatMessage } from './types'
 

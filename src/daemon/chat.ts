@@ -5,7 +5,7 @@
 import type { Message } from '@mariozechner/pi-ai'
 
 import type { RunMetricsReport } from '../costs.js'
-import { streamTextWithContext, type LlmApiKeys, type LlmTokenUsage } from '../llm/generate-text.js'
+import { type LlmApiKeys, type LlmTokenUsage, streamTextWithContext } from '../llm/generate-text.js'
 import { userTextMessage } from '../llm/prompt.js'
 import { buildAutoModelAttempts } from '../model-auto.js'
 import { buildFinishLineVariants, formatModelLabelForDisplay } from '../run/finish-line.js'
@@ -35,7 +35,7 @@ const CHAT_DEFAULT_TIMEOUT_MS = 120_000
 export async function streamChatResponse({
   env,
   fetchImpl,
-  session,
+  session: _session,
   pageUrl,
   pageTitle,
   pageContent,
@@ -53,12 +53,14 @@ export async function streamChatResponse({
   messages: ChatMessage[]
   modelOverride: string | null
   pushToSession: (evt: SseEvent) => void
-  emitMeta: (patch: Partial<{
-    model: string | null
-    modelLabel: string | null
-    inputSummary: string | null
-    summaryFromCache: boolean | null
-  }>) => void
+  emitMeta: (
+    patch: Partial<{
+      model: string | null
+      modelLabel: string | null
+      inputSummary: string | null
+      summaryFromCache: boolean | null
+    }>
+  ) => void
 }): Promise<void> {
   const startedAtMs = Date.now()
 

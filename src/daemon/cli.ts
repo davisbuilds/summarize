@@ -179,12 +179,14 @@ async function waitForHealthWithRetries({
     } catch (err) {
       lastError = err
       if (attempt < attempts - 1) {
-        const backoff = Math.round(delayMs * Math.pow(1.6, attempt))
+        const backoff = Math.round(delayMs * 1.6 ** attempt)
         await sleep(backoff)
       }
     }
   }
-  throw lastError instanceof Error ? lastError : new Error(`Daemon not reachable at ${DAEMON_HOST}:${port}`)
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`Daemon not reachable at ${DAEMON_HOST}:${port}`)
 }
 
 async function checkAuth({
@@ -223,7 +225,7 @@ async function checkAuthWithRetries({
     const ok = await checkAuth({ fetchImpl, token, port })
     if (ok) return true
     if (attempt < attempts - 1) {
-      const backoff = Math.round(delayMs * Math.pow(1.4, attempt))
+      const backoff = Math.round(delayMs * 1.4 ** attempt)
       await sleep(backoff)
     }
   }
