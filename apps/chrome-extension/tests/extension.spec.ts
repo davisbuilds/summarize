@@ -622,6 +622,63 @@ test('hover tooltip proxies daemon calls via background (no page-origin localhos
   }
 })
 
+test('content script extracts visible duration metadata', async () => {
+  test.setTimeout(45_000)
+  const harness = await launchExtension()
+
+  try {
+    await seedSettings(harness, { token: 'test-token', autoSummarize: false })
+    const contentPage = await harness.context.newPage()
+    trackErrors(contentPage, harness.pageErrors, harness.consoleErrors)
+    await contentPage.goto('https://example.com', { waitUntil: 'domcontentloaded' })
+    await contentPage.evaluate(() => {
+      document.title = 'Test Video'
+      const meta = document.createElement('meta')
+      meta.setAttribute('itemprop', 'duration')
+      meta.setAttribute('content', 'PT36M10S')
+      document.head.append(meta)
+      const duration = document.createElement('div')
+      duration.className = 'ytp-time-duration'
+      duration.textContent = '36:10'
+      document.body.innerHTML = '<article><p>Sample transcript text.</p></article>'
+      document.body.append(duration)
+    })
+
+    await activateTabByUrl(harness, 'https://example.com')
+    await waitForActiveTabUrl(harness, 'https://example.com')
+
+    const background =
+      harness.context.serviceWorkers()[0] ??
+      (await harness.context.waitForEvent('serviceworker', { timeout: 15_000 }))
+    const extractResult = await background.evaluate(async () => {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+      if (!tab?.id) return { ok: false, error: 'missing tab' }
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['content-scripts/extract.js'],
+        })
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) }
+      }
+      return new Promise((resolve) => {
+        chrome.tabs.sendMessage(tab.id, { type: 'extract', maxChars: 10_000 }, (response) => {
+          resolve(response ?? { ok: false, error: 'no response' })
+        })
+      })
+    })
+    expect(extractResult).toEqual(
+      expect.objectContaining({
+        ok: true,
+        mediaDurationSeconds: 2170,
+      })
+    )
+    assertNoErrors(harness)
+  } finally {
+    await closeExtension(harness.context, harness.userDataDir)
+  }
+})
+
 test('options pickers support keyboard selection', async () => {
   const harness = await launchExtension()
 
