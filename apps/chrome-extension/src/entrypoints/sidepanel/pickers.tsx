@@ -108,6 +108,45 @@ const modeItems: SelectItem[] = [
   { value: 'dark', label: 'Dark' },
 ]
 
+const modeIcons: Record<string, JSX.Element> = {
+  system: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M8 4h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-4l-2 3-2-3H8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+      <path d="M9 9h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M9 12h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  ),
+  light: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" strokeWidth="1.6" />
+      <path
+        d="M4.6 4.6 6.7 6.7M17.3 17.3l2.1 2.1M17.3 6.7l2.1-2.1M4.6 19.4l2.1-2.1"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
+  ),
+  dark: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M20 14.5A7.5 7.5 0 1 1 9.5 4a6.5 6.5 0 1 0 10.5 10.5Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+    </svg>
+  ),
+}
+
 const fontItems: SelectItem[] = [
   {
     value: '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif',
@@ -401,8 +440,18 @@ function SidepanelPickers(props: SidepanelPickerProps) {
         pickerId="mode"
         api={modeApi}
         items={modeItems}
-        triggerContent={(label) => <span>{label || 'System'}</span>}
-        optionContent={(item) => <span>{item.label}</span>}
+        triggerContent={(label, value) => (
+          <>
+            <span>{label || 'System'}</span>
+            <span className="modeIcon">{modeIcons[value] ?? null}</span>
+          </>
+        )}
+        optionContent={(item) => (
+          <>
+            <span>{item.label}</span>
+            <span className="modeIcon">{modeIcons[item.value] ?? null}</span>
+          </>
+        )}
       />
       <SelectField
         label="Font"
