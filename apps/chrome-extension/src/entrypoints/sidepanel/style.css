@@ -1700,6 +1700,28 @@ button.setup__pill.isActive {
   color: color-mix(in srgb, #f87171 80%, var(--text));
 }
 
+.chatAttachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.chatAttachment {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.chatAttachment:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  color: var(--text);
+}
+
 .chatMessage.assistant.streaming {
   border-color: color-mix(in srgb, var(--border) 40%, transparent);
   background: color-mix(in srgb, var(--panel) 30%, transparent);

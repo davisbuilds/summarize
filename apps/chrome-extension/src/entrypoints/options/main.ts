@@ -1,15 +1,15 @@
+import {
+  deleteSkill,
+  getSkill,
+  listSkills,
+  type Skill,
+  saveSkill,
+} from '../../automation/skills-store'
 import { readPresetOrCustomValue, resolvePresetOrCustom } from '../../lib/combo'
 import { defaultSettings, loadSettings, saveSettings } from '../../lib/settings'
 import { applyTheme, type ColorMode, type ColorScheme } from '../../lib/theme'
 import { mountCheckbox } from '../../ui/zag-checkbox'
 import { mountOptionsPickers } from './pickers'
-import {
-  type Skill,
-  deleteSkill,
-  getSkill,
-  listSkills,
-  saveSkill,
-} from '../../automation/skills-store'
 
 declare const __SUMMARIZE_GIT_HASH__: string
 declare const __SUMMARIZE_VERSION__: string
@@ -38,6 +38,7 @@ const hoverPromptResetBtn = byId<HTMLButtonElement>('hoverPromptReset')
 const chatToggleRoot = byId<HTMLDivElement>('chatToggle')
 const automationToggleRoot = byId<HTMLDivElement>('automationToggle')
 const automationPermissionsBtn = byId<HTMLButtonElement>('automationPermissions')
+const userScriptsNoticeEl = byId<HTMLDivElement>('userScriptsNotice')
 const skillsExportBtn = byId<HTMLButtonElement>('skillsExport')
 const skillsImportBtn = byId<HTMLButtonElement>('skillsImport')
 const skillsSearchEl = byId<HTMLInputElement>('skillsSearch')
@@ -425,6 +426,7 @@ const updateAutomationToggle = () => {
 const handleAutomationToggleChange = (checked: boolean) => {
   automationEnabledValue = checked
   updateAutomationToggle()
+  void updateUserScriptsNotice()
 }
 const automationToggle = mountCheckbox(automationToggleRoot, {
   id: 'options-automation',
@@ -432,6 +434,32 @@ const automationToggle = mountCheckbox(automationToggleRoot, {
   checked: automationEnabledValue,
   onCheckedChange: handleAutomationToggleChange,
 })
+
+async function updateUserScriptsNotice() {
+  if (!automationEnabledValue) {
+    userScriptsNoticeEl.hidden = true
+    return
+  }
+
+  const hasPermission = await chrome.permissions?.contains?.({
+    permissions: ['userScripts'],
+  })
+
+  if (chrome.userScripts) {
+    userScriptsNoticeEl.hidden = true
+    return
+  }
+
+  const steps = [
+    'User Scripts API is not available.',
+    hasPermission ? null : 'First click “Enable automation permissions”.',
+    'Then open chrome://extensions, select Summarize, enable “Allow User Scripts”, and reload the tab.',
+    'Requires Chrome 120+.',
+  ].filter(Boolean)
+
+  userScriptsNoticeEl.textContent = steps.join(' ')
+  userScriptsNoticeEl.hidden = false
+}
 
 async function requestAutomationPermissions() {
   if (!chrome.permissions) return
@@ -442,6 +470,7 @@ async function requestAutomationPermissions() {
   } catch {
     // ignore
   }
+  await updateUserScriptsNotice()
 }
 
 automationPermissionsBtn.addEventListener('click', () => {
@@ -909,6 +938,7 @@ async function load() {
   applyTheme({ scheme: s.colorScheme, mode: s.colorMode })
   updateAdvancedVisibility()
   await loadSkills()
+  await updateUserScriptsNotice()
 }
 
 let refreshTimer = 0

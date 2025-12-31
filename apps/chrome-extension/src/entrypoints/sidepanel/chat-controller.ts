@@ -146,6 +146,28 @@ export class ChatController {
       const header = `Tool result: ${message.toolName}${message.isError ? ' (error)' : ''}`
       const body = output ? `\n\n\`\`\`\n${output}\n\`\`\`` : ''
       msgEl.innerHTML = this.markdown.render(`${header}${body}`)
+      const attachments = extractAttachments(message)
+      if (attachments.length > 0) {
+        const list = document.createElement('div')
+        list.className = 'chatAttachments'
+        for (const file of attachments) {
+          const link = document.createElement('button')
+          link.type = 'button'
+          link.className = 'chatAttachment'
+          link.textContent = `${file.fileName} (${file.mimeType || 'file'})`
+          link.addEventListener('click', () => {
+            const blob = base64ToBlob(file.contentBase64, file.mimeType)
+            const url = URL.createObjectURL(blob)
+            const anchor = document.createElement('a')
+            anchor.href = url
+            anchor.download = file.fileName || 'download'
+            anchor.click()
+            setTimeout(() => URL.revokeObjectURL(url), 1000)
+          })
+          list.appendChild(link)
+        }
+        msgEl.appendChild(list)
+      }
     } else {
       msgEl.textContent = extractText(message)
     }
@@ -228,6 +250,37 @@ function extractText(message: ChatMessage): string {
       .join('')
   }
   return ''
+}
+
+type ToolAttachment = { fileName: string; mimeType: string; contentBase64: string }
+
+function extractAttachments(message: ChatMessage): ToolAttachment[] {
+  if (message.role !== 'toolResult') return []
+  const details = (message as ChatMessage & { details?: unknown }).details
+  if (!details || typeof details !== 'object') return []
+  const files = (details as { files?: unknown }).files
+  if (!Array.isArray(files)) return []
+  return files
+    .map((file) => {
+      if (!file || typeof file !== 'object') return null
+      const item = file as Record<string, unknown>
+      const fileName = typeof item.fileName === 'string' ? item.fileName : ''
+      const mimeType =
+        typeof item.mimeType === 'string' ? item.mimeType : 'application/octet-stream'
+      const contentBase64 = typeof item.contentBase64 === 'string' ? item.contentBase64 : ''
+      if (!fileName || !contentBase64) return null
+      return { fileName, mimeType, contentBase64 }
+    })
+    .filter((file): file is ToolAttachment => Boolean(file))
+}
+
+function base64ToBlob(base64: string, mimeType: string): Blob {
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+  return new Blob([bytes], { type: mimeType || 'application/octet-stream' })
 }
 
 function splitAssistantMessage(message: ChatMessage): {

@@ -231,6 +231,20 @@ function showReplOverlay(message?: string) {
   if (window.__summarizeReplOverlay) return
   window.__summarizeReplOverlay = true
 
+  const styleId = '__summarize_repl_overlay_style__'
+  if (!document.getElementById(styleId)) {
+    const style = document.createElement('style')
+    style.id = styleId
+    style.textContent = `
+      @keyframes summarize-repl-pulse {
+        0% { opacity: 0.3; }
+        50% { opacity: 1; }
+        100% { opacity: 0.3; }
+      }
+    `
+    document.head.appendChild(style)
+  }
+
   const overlay = document.createElement('div')
   overlay.id = '__summarize_repl_overlay__'
   overlay.style.cssText = `
@@ -259,8 +273,18 @@ function showReplOverlay(message?: string) {
     pointer-events: auto;
   `
 
+  const spinner = document.createElement('span')
+  spinner.textContent = '● ● ●'
+  spinner.style.cssText = `
+    font-size: 10px;
+    letter-spacing: 2px;
+    animation: summarize-repl-pulse 1.4s ease-in-out infinite;
+    opacity: 0.6;
+  `
+  card.appendChild(spinner)
+
   const text = document.createElement('span')
-  text.textContent = message || 'Running automation…'
+  text.textContent = message ? `Running: ${message}` : 'Running automation…'
   card.appendChild(text)
 
   const abortBtn = document.createElement('button')
@@ -280,6 +304,7 @@ function showReplOverlay(message?: string) {
   document.body.appendChild(overlay)
 
   const requestAbort = () => {
+    chrome.runtime.sendMessage({ type: 'automation:abort-repl' })
     chrome.runtime.sendMessage({ type: 'automation:abort-agent' })
     hideReplOverlay()
   }

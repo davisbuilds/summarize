@@ -12,6 +12,21 @@ export type SandboxFile = {
   contentBase64: string
 }
 
+let activeAbortController: AbortController | null = null
+let replAbortListenerAttached = false
+
+function ensureReplAbortListener() {
+  if (replAbortListenerAttached) return
+  replAbortListenerAttached = true
+  chrome.runtime.onMessage.addListener((raw) => {
+    if (!raw || typeof raw !== 'object') return
+    const type = (raw as { type?: string }).type
+    if (type === 'automation:abort-repl' || type === 'automation:abort-agent') {
+      activeAbortController?.abort()
+    }
+  })
+}
+
 type BrowserJsResult = {
   ok: boolean
   value?: unknown
@@ -92,7 +107,14 @@ async function hasDebuggerPermission(): Promise<boolean> {
   return chrome.permissions.contains({ permissions: ['debugger'] })
 }
 
-async function runBrowserJs(fnSource: string, args: unknown[] = []): Promise<BrowserJsResult> {
+async function runBrowserJs(
+  fnSource: string,
+  args: unknown[] = [],
+  signal?: AbortSignal
+): Promise<BrowserJsResult> {
+  if (signal?.aborted) {
+    return { ok: false, error: 'Execution aborted' }
+  }
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
   if (!tab?.id) throw new Error('No active tab')
 
@@ -134,6 +156,27 @@ async function runBrowserJs(fnSource: string, args: unknown[] = []): Promise<Bro
       throw new Error(
         'User Scripts permission is required. Enable it in Options → Automation permissions, then allow “User Scripts” in chrome://extensions.'
       )
+    }
+
+    const terminate =
+      // @ts-expect-error - terminate is not yet in the type definitions
+      typeof chrome.userScripts?.terminate === 'function'
+        ? // @ts-expect-error - terminate is not yet in the type definitions
+          chrome.userScripts.terminate.bind(chrome.userScripts)
+        : null
+
+    const executionId = terminate ? crypto.randomUUID() : undefined
+    let abortHandler: (() => void) | null = null
+
+    if (signal && executionId && terminate) {
+      abortHandler = () => {
+        try {
+          terminate(tab.id, executionId)
+        } catch {
+          // ignore
+        }
+      }
+      signal.addEventListener('abort', abortHandler, { once: true })
     }
 
     const argsJson = (() => {
@@ -240,9 +283,16 @@ async function runBrowserJs(fnSource: string, args: unknown[] = []): Promise<Bro
       worldId: 'summarize-browserjs',
       injectImmediately: true,
       js: [{ code: wrapperCode }],
+      ...(executionId ? { executionId } : {}),
     })
 
+    if (signal?.aborted) {
+      if (abortHandler) signal.removeEventListener('abort', abortHandler)
+      return { ok: false, error: 'Execution aborted' }
+    }
+
     const result = results?.[0]?.result as BrowserJsResult | undefined
+    if (abortHandler) signal?.removeEventListener('abort', abortHandler)
     return result ?? { ok: false, error: 'No result from browserjs()' }
   }
 
@@ -361,6 +411,10 @@ async function runBrowserJs(fnSource: string, args: unknown[] = []): Promise<Bro
   }
 
   const [result] = await chrome.scripting.executeScript(injection)
+
+  if (signal?.aborted) {
+    return { ok: false, error: 'Execution aborted' }
+  }
 
   return (result?.result ?? { ok: false, error: 'No result from browserjs()' }) as BrowserJsResult
 }
@@ -507,7 +561,8 @@ async function runSandboxedRepl(
   handlers: {
     onBrowserJs: (payload: { fnSource: string; args: unknown[] }) => Promise<unknown>
     onNavigate: (payload: { url: string; newTab?: boolean }) => Promise<unknown>
-  }
+  },
+  signal?: AbortSignal
 ): Promise<{ logs: string[]; files: SandboxFile[]; error?: string }> {
   const iframe = document.createElement('iframe')
   iframe.setAttribute('sandbox', 'allow-scripts')
@@ -518,7 +573,15 @@ async function runSandboxedRepl(
   const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
 
   return new Promise((resolve) => {
+    const abortHandler = () => {
+      cleanup()
+      resolve({ logs: [], files: [], error: 'Execution aborted' })
+    }
+
     const cleanup = () => {
+      if (signal) {
+        signal.removeEventListener('abort', abortHandler)
+      }
       window.removeEventListener('message', onMessage)
       iframe.remove()
     }
@@ -610,6 +673,13 @@ async function runSandboxedRepl(
     }
 
     window.addEventListener('message', onMessage)
+    if (signal) {
+      if (signal.aborted) {
+        abortHandler()
+        return
+      }
+      signal.addEventListener('abort', abortHandler, { once: true })
+    }
 
     const sendExecute = () => {
       iframe.contentWindow?.postMessage(
@@ -629,9 +699,12 @@ async function runSandboxedRepl(
 export async function executeReplTool(args: ReplArgs): Promise<ReplResult> {
   if (!args.code?.trim()) throw new Error('Missing code')
   validateReplCode(args.code)
+  ensureReplAbortListener()
 
   const usesBrowserJs = args.code.includes('browserjs(')
   let overlayTabId: number | null = null
+  const abortController = new AbortController()
+  activeAbortController = abortController
   if (usesBrowserJs) {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
     if (tab?.id) {
@@ -641,17 +714,21 @@ export async function executeReplTool(args: ReplArgs): Promise<ReplResult> {
   }
 
   try {
-    const sandboxResult = await runSandboxedRepl(args.code, {
-      onBrowserJs: async ({ fnSource, args: fnArgs }) => {
-        const res = await runBrowserJs(fnSource, fnArgs)
-        if (!res.ok) throw new Error(res.error || 'browserjs failed')
-        if (res.logs?.length) {
-          return { value: res.value, __browserLogs: res.logs }
-        }
-        return res.value
+    const sandboxResult = await runSandboxedRepl(
+      args.code,
+      {
+        onBrowserJs: async ({ fnSource, args: fnArgs }) => {
+          const res = await runBrowserJs(fnSource, fnArgs, abortController.signal)
+          if (!res.ok) throw new Error(res.error || 'browserjs failed')
+          if (res.logs?.length) {
+            return { value: res.value, __browserLogs: res.logs }
+          }
+          return res.value
+        },
+        onNavigate: async (input) => executeNavigateTool(input),
       },
-      onNavigate: async (input) => executeNavigateTool(input),
-    })
+      abortController.signal
+    )
 
     const logs = sandboxResult.logs ?? []
     if (sandboxResult.files?.length) {
@@ -669,6 +746,8 @@ export async function executeReplTool(args: ReplArgs): Promise<ReplResult> {
       files: sandboxResult.files?.length ? sandboxResult.files : undefined,
     }
   } finally {
+    abortController.abort()
+    activeAbortController = null
     if (overlayTabId) {
       await sendReplOverlay(overlayTabId, 'hide')
     }
