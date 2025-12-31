@@ -41,6 +41,41 @@ function plistEscape(value: string): string {
     .replaceAll("'", '&apos;')
 }
 
+function plistUnescape(value: string): string {
+  return value
+    .replaceAll('&apos;', "'")
+    .replaceAll('&quot;', '"')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&amp;', '&')
+}
+
+export async function readLaunchAgentProgramArguments(
+  env: Record<string, string | undefined>
+): Promise<{ programArguments: string[]; workingDirectory?: string } | null> {
+  const plistPath = resolveLaunchAgentPlistPath(env)
+  try {
+    const plist = await fs.readFile(plistPath, 'utf8')
+    const programMatch = plist.match(
+      /<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/i
+    )
+    if (!programMatch) return null
+    const args = Array.from(programMatch[1].matchAll(/<string>([\s\S]*?)<\/string>/gi)).map(
+      (match) => plistUnescape(match[1] ?? '').trim()
+    )
+    const workingDirMatch = plist.match(
+      /<key>WorkingDirectory<\/key>\s*<string>([\s\S]*?)<\/string>/i
+    )
+    const workingDirectory = workingDirMatch ? plistUnescape(workingDirMatch[1] ?? '').trim() : ''
+    return {
+      programArguments: args.filter(Boolean),
+      ...(workingDirectory ? { workingDirectory } : {}),
+    }
+  } catch {
+    return null
+  }
+}
+
 export function buildLaunchAgentPlist({
   label = DAEMON_LAUNCH_AGENT_LABEL,
   programArguments,

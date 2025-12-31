@@ -9,12 +9,14 @@ import { buildEnvSnapshotFromEnv } from './env-snapshot.js'
 import {
   installLaunchAgent,
   isLaunchAgentLoaded,
+  readLaunchAgentProgramArguments,
   restartLaunchAgent,
   uninstallLaunchAgent,
 } from './launchd.js'
 import {
   installScheduledTask,
   isScheduledTaskInstalled,
+  readScheduledTaskCommand,
   restartScheduledTask,
   uninstallScheduledTask,
 } from './schtasks.js'
@@ -22,6 +24,7 @@ import { runDaemonServer } from './server.js'
 import {
   installSystemdService,
   isSystemdServiceEnabled,
+  readSystemdServiceExecStart,
   restartSystemdService,
   uninstallSystemdService,
 } from './systemd.js'
@@ -313,6 +316,24 @@ async function resolveDaemonProgramArguments({
   }
 }
 
+function formatProgramArguments(args: string[]): string {
+  return args
+    .map((arg) => {
+      if (!/[\s"]/g.test(arg)) return arg
+      return `"${arg.replace(/"/g, '\\"')}"`
+    })
+    .join(' ')
+}
+
+async function readInstalledDaemonCommand(
+  env: Record<string, string | undefined>
+): Promise<{ programArguments: string[]; workingDirectory?: string } | null> {
+  if (process.platform === 'darwin') return readLaunchAgentProgramArguments(env)
+  if (process.platform === 'linux') return readSystemdServiceExecStart(env)
+  if (process.platform === 'win32') return readScheduledTaskCommand(env)
+  return null
+}
+
 export async function handleDaemonRequest({
   normalizedArgv,
   envForRun,
@@ -357,6 +378,13 @@ export async function handleDaemonRequest({
     if (!authed) throw new Error('Daemon is up but auth failed (token mismatch?)')
 
     stdout.write(`Daemon config: ${configPath}\n`)
+    const installedCommand = await readInstalledDaemonCommand(envForRun)
+    if (installedCommand?.programArguments?.length) {
+      stdout.write(`Daemon command: ${formatProgramArguments(installedCommand.programArguments)}\n`)
+      if (installedCommand.workingDirectory) {
+        stdout.write(`Daemon cwd: ${installedCommand.workingDirectory}\n`)
+      }
+    }
     stdout.write(`OK: daemon is running and authenticated.\n`)
     return true
   }
@@ -405,6 +433,13 @@ export async function handleDaemonRequest({
     }
 
     await service.restart({ stdout })
+    const installedCommand = await readInstalledDaemonCommand(envForRun)
+    if (installedCommand?.programArguments?.length) {
+      stdout.write(`Daemon command: ${formatProgramArguments(installedCommand.programArguments)}\n`)
+      if (installedCommand.workingDirectory) {
+        stdout.write(`Daemon cwd: ${installedCommand.workingDirectory}\n`)
+      }
+    }
     await sleep(8000)
     let healthy = true
     try {

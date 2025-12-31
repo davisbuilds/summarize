@@ -23,6 +23,69 @@ function quoteCmdArg(value: string): string {
   return `"${value.replace(/"/g, '\\"')}"`
 }
 
+function parseCommandLine(value: string): string[] {
+  const args: string[] = []
+  let current = ''
+  let inQuotes = false
+  let escapeNext = false
+
+  for (const char of value) {
+    if (escapeNext) {
+      current += char
+      escapeNext = false
+      continue
+    }
+    if (char === '\\') {
+      escapeNext = true
+      continue
+    }
+    if (char === '"') {
+      inQuotes = !inQuotes
+      continue
+    }
+    if (!inQuotes && /\s/.test(char)) {
+      if (current) {
+        args.push(current)
+        current = ''
+      }
+      continue
+    }
+    current += char
+  }
+  if (current) args.push(current)
+  return args
+}
+
+export async function readScheduledTaskCommand(
+  env: Record<string, string | undefined>
+): Promise<{ programArguments: string[]; workingDirectory?: string } | null> {
+  const scriptPath = resolveTaskScriptPath(env)
+  try {
+    const content = await fs.readFile(scriptPath, 'utf8')
+    let workingDirectory = ''
+    let commandLine = ''
+    for (const rawLine of content.split(/\r?\n/)) {
+      const line = rawLine.trim()
+      if (!line) continue
+      if (line.startsWith('@echo')) continue
+      if (line.toLowerCase().startsWith('rem ')) continue
+      if (line.toLowerCase().startsWith('cd /d ')) {
+        workingDirectory = line.slice('cd /d '.length).trim().replace(/^"|"$/g, '')
+        continue
+      }
+      commandLine = line
+      break
+    }
+    if (!commandLine) return null
+    return {
+      programArguments: parseCommandLine(commandLine),
+      ...(workingDirectory ? { workingDirectory } : {}),
+    }
+  } catch {
+    return null
+  }
+}
+
 function buildTaskScript({
   programArguments,
   workingDirectory,

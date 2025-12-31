@@ -51,6 +51,67 @@ function buildSystemdUnit({
     .join('\n')
 }
 
+function parseSystemdExecStart(value: string): string[] {
+  const args: string[] = []
+  let current = ''
+  let inQuotes = false
+  let escapeNext = false
+
+  for (const char of value) {
+    if (escapeNext) {
+      current += char
+      escapeNext = false
+      continue
+    }
+    if (char === '\\') {
+      escapeNext = true
+      continue
+    }
+    if (char === '"') {
+      inQuotes = !inQuotes
+      continue
+    }
+    if (!inQuotes && /\s/.test(char)) {
+      if (current) {
+        args.push(current)
+        current = ''
+      }
+      continue
+    }
+    current += char
+  }
+  if (current) args.push(current)
+  return args
+}
+
+export async function readSystemdServiceExecStart(
+  env: Record<string, string | undefined>
+): Promise<{ programArguments: string[]; workingDirectory?: string } | null> {
+  const unitPath = resolveSystemdUnitPath(env)
+  try {
+    const content = await fs.readFile(unitPath, 'utf8')
+    let execStart = ''
+    let workingDirectory = ''
+    for (const rawLine of content.split('\n')) {
+      const line = rawLine.trim()
+      if (!line || line.startsWith('#')) continue
+      if (line.startsWith('ExecStart=')) {
+        execStart = line.slice('ExecStart='.length).trim()
+      } else if (line.startsWith('WorkingDirectory=')) {
+        workingDirectory = line.slice('WorkingDirectory='.length).trim()
+      }
+    }
+    if (!execStart) return null
+    const programArguments = parseSystemdExecStart(execStart)
+    return {
+      programArguments,
+      ...(workingDirectory ? { workingDirectory } : {}),
+    }
+  } catch {
+    return null
+  }
+}
+
 async function execSystemctl(
   args: string[]
 ): Promise<{ stdout: string; stderr: string; code: number }> {
