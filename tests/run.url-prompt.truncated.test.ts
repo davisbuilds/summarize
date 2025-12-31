@@ -20,6 +20,8 @@ describe('buildUrlPrompt', () => {
       transcriptSource: null,
       transcriptionProvider: null,
       transcriptMetadata: null,
+      transcriptSegments: null,
+      transcriptTimedText: null,
       mediaDurationSeconds: null,
       video: null,
       isVideoOnly: false,

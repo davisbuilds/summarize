@@ -82,7 +82,7 @@ describe('YouTube captionTracks edge cases', () => {
       }
     )
 
-    expect(transcript).toBe('From xml url')
+    expect(transcript?.text).toBe('From xml url')
   })
 
   it('extracts duration seconds from raw HTML when JSON parsing fails', () => {

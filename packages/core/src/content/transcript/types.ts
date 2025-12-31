@@ -20,6 +20,7 @@ export interface ProviderFetchOptions {
   apifyApiToken: string | null
   youtubeTranscriptMode: YoutubeTranscriptMode
   mediaTranscriptMode: MediaTranscriptMode
+  transcriptTimestamps?: boolean
   ytDlpPath: string | null
   falApiKey: string | null
   openaiApiKey: string | null

@@ -55,6 +55,7 @@ export async function fetchLinkContent(
   const maxCharacters = resolveMaxCharacters(options)
   const youtubeTranscriptMode = options?.youtubeTranscript ?? 'auto'
   const mediaTranscriptMode = options?.mediaTranscript ?? 'auto'
+  const transcriptTimestamps = options?.transcriptTimestamps ?? false
   const firecrawlMode = resolveFirecrawlMode(options)
   const markdownRequested = (options?.format ?? 'text') === 'markdown'
   const markdownMode: MarkdownMode = options?.markdownMode ?? 'auto'
@@ -73,6 +74,7 @@ export async function fetchLinkContent(
     const transcriptResolution = await resolveTranscriptForLink(url, null, deps, {
       youtubeTranscriptMode,
       mediaTranscriptMode,
+      transcriptTimestamps,
       cacheMode,
     })
     if (!transcriptResolution.text) {
@@ -131,6 +133,7 @@ export async function fetchLinkContent(
     const transcriptResolution = await resolveTranscriptForLink(url, null, deps, {
       youtubeTranscriptMode,
       mediaTranscriptMode,
+      transcriptTimestamps,
       cacheMode,
     })
     if (!transcriptResolution.text) {
@@ -182,6 +185,7 @@ export async function fetchLinkContent(
     const transcriptResolution = await resolveTranscriptForLink(url, null, deps, {
       youtubeTranscriptMode,
       mediaTranscriptMode,
+      transcriptTimestamps,
       cacheMode,
     })
     if (!transcriptResolution.text) {
@@ -278,6 +282,7 @@ export async function fetchLinkContent(
       maxCharacters,
       youtubeTranscriptMode,
       mediaTranscriptMode,
+      transcriptTimestamps,
       firecrawlDiagnostics,
       markdownRequested,
       deps,
@@ -316,6 +321,7 @@ export async function fetchLinkContent(
         : await resolveTranscriptForLink(url, null, deps, {
             youtubeTranscriptMode,
             mediaTranscriptMode,
+            transcriptTimestamps,
             cacheMode,
           })
       const transcriptDiagnostics = ensureTranscriptDiagnostics(
@@ -408,6 +414,7 @@ export async function fetchLinkContent(
       maxCharacters,
       youtubeTranscriptMode,
       mediaTranscriptMode,
+      transcriptTimestamps,
       firecrawlDiagnostics,
       markdownRequested,
       markdownMode,
@@ -487,6 +494,7 @@ export async function fetchLinkContent(
     maxCharacters,
     youtubeTranscriptMode,
     mediaTranscriptMode,
+    transcriptTimestamps,
     firecrawlDiagnostics,
     markdownRequested,
     markdownMode,

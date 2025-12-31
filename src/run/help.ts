@@ -20,6 +20,7 @@ export function buildProgram() {
         .choices(['auto', 'transcript', 'understand'])
         .default('auto')
     )
+    .option('--timestamps', 'Include timestamps in transcripts when available.', false)
     .option(
       '--firecrawl <mode>',
       'Firecrawl usage: off, auto (fallback), always (try Firecrawl first).',

@@ -1740,6 +1740,11 @@ button.setup__pill.isActive {
   text-decoration: none;
 }
 
+.chatMessage a.chatTimestamp {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
 .chatMessage a:hover {
   text-decoration: underline;
 }

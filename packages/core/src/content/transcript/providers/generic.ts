@@ -3,7 +3,13 @@ import { isWhisperCppReady } from '../../../transcription/whisper.js'
 import { isTwitterStatusUrl } from '../../link-preview/content/twitter-utils.js'
 import { isDirectMediaUrl } from '../../url.js'
 import { normalizeTranscriptText } from '../normalize.js'
-import { jsonTranscriptToPlainText, vttToPlainText } from '../parse.js'
+import {
+  jsonTranscriptToPlainText,
+  jsonTranscriptToSegments,
+  vttToPlainText,
+  vttToSegments,
+} from '../parse.js'
+import type { TranscriptSegment } from '../../link-preview/types.js'
 import type { ProviderContext, ProviderFetchOptions, ProviderResult } from '../types.js'
 
 export const canHandle = (): boolean => true
@@ -18,11 +24,17 @@ export const fetchTranscript = async (
   const embedded = context.html ? detectEmbeddedMedia(context.html, context.url) : null
   if (embedded?.track) {
     attemptedProviders.push('embedded')
-    const captionText = await fetchCaptionTrack(options.fetch, embedded.track, notes)
-    if (captionText) {
+    const caption = await fetchCaptionTrack(
+      options.fetch,
+      embedded.track,
+      notes,
+      Boolean(options.transcriptTimestamps)
+    )
+    if (caption?.text) {
       return {
-        text: normalizeTranscriptText(captionText),
+        text: normalizeTranscriptText(caption.text),
         source: 'embedded',
+        segments: options.transcriptTimestamps ? caption.segments ?? null : null,
         attemptedProviders,
         metadata: {
           provider: 'embedded',
@@ -256,8 +268,9 @@ function pickMediaUrl(candidates: Array<string | null>): string | null {
 async function fetchCaptionTrack(
   fetchImpl: typeof fetch,
   track: EmbeddedTrack,
-  notes: string[]
-): Promise<string | null> {
+  notes: string[],
+  includeSegments: boolean
+): Promise<{ text: string; segments: TranscriptSegment[] | null } | null> {
   try {
     const res = await fetchImpl(track.url, {
       headers: { accept: 'text/vtt,text/plain,application/json;q=0.9,*/*;q=0.8' },
@@ -272,7 +285,11 @@ async function fetchCaptionTrack(
 
     if (type.includes('application/json') || contentType.includes('application/json')) {
       try {
-        return jsonTranscriptToPlainText(JSON.parse(body))
+        const parsed = JSON.parse(body)
+        const text = jsonTranscriptToPlainText(parsed)
+        if (!text) return null
+        const segments = includeSegments ? jsonTranscriptToSegments(parsed) : null
+        return { text, segments }
       } catch {
         notes.push('Embedded captions JSON parse failed')
         return null
@@ -285,10 +302,13 @@ async function fetchCaptionTrack(
       track.url.toLowerCase().endsWith('.vtt')
     ) {
       const plain = vttToPlainText(body)
-      return plain.length > 0 ? plain : null
+      if (plain.length === 0) return null
+      const segments = includeSegments ? vttToSegments(body) : null
+      return { text: plain, segments }
     }
 
-    return body.trim().length > 0 ? body.trim() : null
+    const trimmed = body.trim()
+    return trimmed.length > 0 ? { text: trimmed, segments: null } : null
   } catch (error) {
     notes.push(`Embedded captions fetch failed: ${error instanceof Error ? error.message : error}`)
     return null

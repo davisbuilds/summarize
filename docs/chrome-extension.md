@@ -99,6 +99,11 @@ See `docs/media.md` for detection and transcript rules.
 - `linkify: true`.
 - Render links with `target=_blank` + `rel=noopener noreferrer`.
 
+## Timestamp Links (Chat)
+
+- When timed transcripts are available, chat context includes `[mm:ss]` lines.
+- Assistant is prompted to cite timestamps; clicking them seeks the current media (video/audio) while preserving play/pause state.
+
 ## Model Selection UX
 
 - Settings:

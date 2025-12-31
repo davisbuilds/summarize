@@ -53,6 +53,6 @@ describe('YouTube captionTracks XML fallback', () => {
       }
     )
 
-    expect(transcript).toBe('Hello & world')
+    expect(transcript?.text).toBe('Hello & world')
   })
 })

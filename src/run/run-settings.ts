@@ -38,6 +38,7 @@ export type RunOverrides = {
   preprocessMode: PreprocessMode | null
   youtubeMode: YoutubeMode | null
   videoMode: VideoMode | null
+  transcriptTimestamps: boolean | null
   timeoutMs: number | null
   retries: number | null
   maxOutputTokensArg: number | null
@@ -49,6 +50,7 @@ export type RunOverridesInput = {
   preprocess?: unknown
   youtube?: unknown
   videoMode?: unknown
+  timestamps?: unknown
   timeout?: unknown
   retries?: unknown
   maxOutputTokens?: unknown
@@ -149,6 +151,28 @@ const parseOptionalSetting = <T>(
   }
 }
 
+const parseOptionalBoolean = (raw: unknown, strict: boolean): boolean | null => {
+  if (typeof raw === 'boolean') return raw
+  if (typeof raw !== 'string') return null
+  const normalized = raw.trim().toLowerCase()
+  if (!normalized) return null
+  if (normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on') {
+    return true
+  }
+  if (
+    normalized === 'false' ||
+    normalized === '0' ||
+    normalized === 'no' ||
+    normalized === 'off'
+  ) {
+    return false
+  }
+  if (strict) {
+    throw new Error(`Unsupported --timestamps: ${raw}`)
+  }
+  return null
+}
+
 export function resolveRunOverrides(
   {
     firecrawl,
@@ -156,6 +180,7 @@ export function resolveRunOverrides(
     preprocess,
     youtube,
     videoMode,
+    timestamps,
     timeout,
     retries,
     maxOutputTokens,
@@ -236,6 +261,7 @@ export function resolveRunOverrides(
     preprocessMode: parseOptionalSetting(preprocess, parsePreprocessMode, strict),
     youtubeMode: parseOptionalSetting(youtube, parseYoutubeMode, strict),
     videoMode: parseOptionalSetting(videoMode, parseVideoMode, strict),
+    transcriptTimestamps: parseOptionalBoolean(timestamps, strict),
     timeoutMs,
     retries: retriesResolved,
     maxOutputTokensArg,

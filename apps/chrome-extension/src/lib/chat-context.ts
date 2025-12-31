@@ -15,6 +15,7 @@ export type ChatContextMetadata = {
   transcriptCharacters?: number | null
   transcriptWordCount?: number | null
   transcriptLines?: number | null
+  transcriptHasTimestamps?: boolean | null
   truncated?: boolean | null
 }
 
@@ -90,6 +91,10 @@ function buildMetadataBlock(metadata?: ChatContextMetadata): string {
 
   if (metadata.attemptedTranscriptProviders?.length) {
     lines.push(`Transcript attempts: ${metadata.attemptedTranscriptProviders.join(', ')}`)
+  }
+
+  if (typeof metadata.transcriptHasTimestamps === 'boolean') {
+    lines.push(`Transcript timestamps: ${metadata.transcriptHasTimestamps ? 'yes' : 'no'}`)
   }
 
   const contentParts: string[] = []

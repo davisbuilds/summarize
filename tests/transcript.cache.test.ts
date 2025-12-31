@@ -31,6 +31,79 @@ describe('transcript cache helpers', () => {
     expect(vi.mocked(transcriptCache.get)).toHaveBeenCalledTimes(1)
   })
 
+  it('returns cache miss when timestamps requested but cached segments missing', async () => {
+    const transcriptCache: TranscriptCache = {
+      get: vi.fn(async () => ({
+        content: 'cached transcript',
+        source: 'captionTracks',
+        expired: false,
+        metadata: { timestamps: true },
+      })),
+      set: vi.fn(async () => {}),
+    }
+
+    const outcome = await readTranscriptCache({
+      url: 'https://example.com',
+      cacheMode: 'default',
+      transcriptCache,
+      transcriptTimestamps: true,
+    })
+
+    expect(outcome.resolution).toBeNull()
+    expect(outcome.diagnostics.notes).toContain('missing timestamps')
+  })
+
+  it('keeps cached transcript when timestamps are explicitly unavailable', async () => {
+    const transcriptCache: TranscriptCache = {
+      get: vi.fn(async () => ({
+        content: 'cached transcript',
+        source: 'captionTracks',
+        expired: false,
+        metadata: { timestamps: false },
+      })),
+      set: vi.fn(async () => {}),
+    }
+
+    const outcome = await readTranscriptCache({
+      url: 'https://example.com',
+      cacheMode: 'default',
+      transcriptCache,
+      transcriptTimestamps: true,
+    })
+
+    expect(outcome.resolution?.text).toBe('cached transcript')
+    expect(outcome.diagnostics.notes).toContain('timestamps unavailable')
+  })
+
+  it('returns cached segments when timestamps are requested', async () => {
+    const transcriptCache: TranscriptCache = {
+      get: vi.fn(async () => ({
+        content: 'cached transcript',
+        source: 'captionTracks',
+        expired: false,
+        metadata: {
+          segments: [
+            { startMs: 1000, endMs: 2000, text: 'Hello' },
+            { startMs: 2000, endMs: null, text: 'world' },
+          ],
+        },
+      })),
+      set: vi.fn(async () => {}),
+    }
+
+    const outcome = await readTranscriptCache({
+      url: 'https://example.com',
+      cacheMode: 'default',
+      transcriptCache,
+      transcriptTimestamps: true,
+    })
+
+    expect(outcome.resolution?.segments).toEqual([
+      { startMs: 1000, endMs: 2000, text: 'Hello' },
+      { startMs: 2000, endMs: null, text: 'world' },
+    ])
+  })
+
   it('skips cache reads when bypass requested', async () => {
     const transcriptCache: TranscriptCache = {
       get: vi.fn(async () => ({

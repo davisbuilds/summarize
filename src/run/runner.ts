@@ -215,6 +215,7 @@ export async function runCli(
   const noCacheFlag = program.opts().cache === false
   const extractMode = Boolean(program.opts().extract) || Boolean(program.opts().extractOnly)
   const json = Boolean(program.opts().json)
+  const transcriptTimestamps = Boolean(program.opts().timestamps)
   const streamMode = parseStreamMode(program.opts().stream as string)
   const plain = Boolean(program.opts().plain)
   const debug = Boolean(program.opts().debug)
@@ -572,6 +573,7 @@ export async function runCli(
         youtubeMode,
         firecrawlMode: requestedFirecrawlMode,
         videoMode,
+        transcriptTimestamps,
         outputLanguage,
         lengthArg,
         promptOverride,

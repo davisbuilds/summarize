@@ -107,6 +107,6 @@ describe('YouTube captionTracks Android fallback + empty-body branches', () => {
       }
     )
 
-    expect(transcript).toBe('From xml\nagain')
+    expect(transcript?.text).toBe('From xml\nagain')
   })
 })

@@ -10,6 +10,12 @@ export type TranscriptSource =
   | 'unavailable'
   | 'unknown'
 
+export type TranscriptSegment = {
+  startMs: number
+  endMs?: number | null
+  text: string
+}
+
 export const CACHE_MODES = ['default', 'bypass'] as const
 export type CacheMode = (typeof CACHE_MODES)[number]
 
@@ -51,4 +57,5 @@ export interface TranscriptResolution {
   source: TranscriptSource | null
   metadata?: Record<string, unknown> | null
   diagnostics?: TranscriptDiagnostics
+  segments?: TranscriptSegment[] | null
 }

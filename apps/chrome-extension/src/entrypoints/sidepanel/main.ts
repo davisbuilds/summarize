@@ -20,10 +20,13 @@ type PanelToBg =
   | { type: 'panel:ready' }
   | { type: 'panel:summarize'; refresh?: boolean; inputMode?: 'page' | 'video' }
   | {
-      type: 'panel:chat'
-      messages: Array<{ role: 'user' | 'assistant'; content: string }>
+      type: 'panel:agent'
+      requestId: string
+      messages: Array<Record<string, unknown>>
+      tools: string[]
       summary?: string | null
     }
+  | { type: 'panel:seek'; seconds: number }
   | { type: 'panel:ping' }
   | { type: 'panel:closed' }
   | { type: 'panel:rememberUrl'; url: string }
@@ -41,7 +44,13 @@ type BgToPanel =
   | { type: 'ui:status'; status: string }
   | { type: 'run:start'; run: RunStart }
   | { type: 'run:error'; message: string }
-  | { type: 'chat:start'; payload: ChatStartPayload }
+  | {
+      type: 'agent:response'
+      requestId: string
+      ok: boolean
+      assistant?: Record<string, unknown>
+      error?: string
+    }
 
 let panelPort: chrome.runtime.Port | null = null
 let panelPortConnecting: Promise<chrome.runtime.Port | null> | null = null
@@ -152,6 +161,7 @@ const panelState: PanelState = {
 let drawerAnimation: Animation | null = null
 let autoValue = false
 let chatEnabledValue = defaultSettings.chatEnabled
+let automationEnabledValue = defaultSettings.automationEnabled
 let autoKickTimer = 0
 
 const MAX_CHAT_MESSAGES = 1000
@@ -187,6 +197,20 @@ const chatController = new ChatController({
   limits: chatLimits,
   scrollToBottom: () => scrollToBottom(),
   onNewContent: () => updateAutoScrollLock(),
+})
+
+chatMessagesEl.addEventListener('click', (event) => {
+  const target = event.target as HTMLElement | null
+  if (!target) return
+  const link = target.closest('a.chatTimestamp') as HTMLAnchorElement | null
+  if (!link) return
+  const href = link.getAttribute('href') ?? ''
+  if (!href.startsWith('timestamp:')) return
+  const seconds = parseTimestampHref(href)
+  if (seconds == null) return
+  event.preventDefault()
+  event.stopPropagation()
+  void send({ type: 'panel:seek', seconds })
 })
 
 const summarizeControl = mountSummarizeControl(summarizeControlRoot, {
@@ -1655,6 +1679,13 @@ function sendSummarize(opts?: { refresh?: boolean }) {
   })
 }
 
+function parseTimestampHref(href: string): number | null {
+  const raw = href.slice('timestamp:'.length).trim()
+  const seconds = Number(raw)
+  if (!Number.isFinite(seconds) || seconds < 0) return null
+  return Math.floor(seconds)
+}
+
 function toggleDrawer(force?: boolean, opts?: { animate?: boolean }) {
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false
   const animate = opts?.animate !== false && !reducedMotion
@@ -1941,6 +1972,7 @@ void (async () => {
   setCurrentLineHeight(s.lineHeight)
   autoValue = s.autoSummarize
   chatEnabledValue = s.chatEnabled
+  automationEnabledValue = s.automationEnabled
   autoToggle.update({
     id: 'sidepanel-auto',
     label: 'Auto summarize',
@@ -1990,9 +2022,14 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   const nextSettings = changes.settings?.newValue
   if (!nextSettings || typeof nextSettings !== 'object') return
   const nextChatEnabled = (nextSettings as { chatEnabled?: unknown }).chatEnabled
-  if (typeof nextChatEnabled !== 'boolean' || nextChatEnabled === chatEnabledValue) return
-  chatEnabledValue = nextChatEnabled
-  applyChatEnabled()
+  if (typeof nextChatEnabled === 'boolean' && nextChatEnabled !== chatEnabledValue) {
+    chatEnabledValue = nextChatEnabled
+    applyChatEnabled()
+  }
+  const nextAutomationEnabled = (nextSettings as { automationEnabled?: unknown }).automationEnabled
+  if (typeof nextAutomationEnabled === 'boolean') {
+    automationEnabledValue = nextAutomationEnabled
+  }
 })
 
 let lastVisibility = document.visibilityState

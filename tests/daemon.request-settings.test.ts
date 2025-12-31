@@ -48,4 +48,12 @@ describe('run/run-settings overrides', () => {
     expect(overridesNumeric.retries).toBe(2)
     expect(overridesNumeric.maxOutputTokensArg).toBe(512)
   })
+
+  it('parses timestamps override', () => {
+    const overrides = resolveRunOverrides({ timestamps: 'yes' })
+    expect(overrides.transcriptTimestamps).toBe(true)
+
+    const overridesOff = resolveRunOverrides({ timestamps: 'off' })
+    expect(overridesOff.transcriptTimestamps).toBe(false)
+  })
 })

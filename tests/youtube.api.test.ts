@@ -90,11 +90,15 @@ describe('YouTube transcript parsing', () => {
                           {
                             transcriptSegmentRenderer: {
                               snippet: { runs: [{ text: 'Line 1' }] },
+                              startMs: '1000',
+                              durationMs: '2000',
                             },
                           },
                           {
                             transcriptSegmentRenderer: {
                               snippet: { runs: [{ text: 'Line 2' }] },
+                              startMs: '3000',
+                              durationMs: '1500',
                             },
                           },
                         ],
@@ -109,7 +113,12 @@ describe('YouTube transcript parsing', () => {
       ],
     }
 
-    expect(extractTranscriptFromTranscriptEndpoint(payload)).toBe('Line 1\nLine 2')
+    const transcript = extractTranscriptFromTranscriptEndpoint(payload)
+    expect(transcript?.text).toBe('Line 1\nLine 2')
+    expect(transcript?.segments).toEqual([
+      { startMs: 1000, endMs: 3000, text: 'Line 1' },
+      { startMs: 3000, endMs: 4500, text: 'Line 2' },
+    ])
   })
 
   it('fetches transcript endpoint and returns null for non-2xx/invalid JSON', async () => {
@@ -176,7 +185,7 @@ describe('YouTube transcript parsing', () => {
         originalUrl: 'https://www.youtube.com/watch?v=abcdefghijk',
       }
     )
-    expect(transcript).toBe('Hello')
+    expect(transcript?.text).toBe('Hello')
 
     const fetchNotOk = async () => new Response('nope', { status: 403 })
     expect(

@@ -47,7 +47,7 @@ describe('YouTube captionTracks bootstrap fallbacks', () => {
       }
     )
 
-    expect(transcript).toBe('OK')
+    expect(transcript?.text).toBe('OK')
   })
 
   it('falls back to Android when bootstrap response JSON is unparseable', async () => {
@@ -92,7 +92,7 @@ describe('YouTube captionTracks bootstrap fallbacks', () => {
       }
     )
 
-    expect(transcript).toBe('OK')
+    expect(transcript?.text).toBe('OK')
   })
 
   it('parses JSON transcript payloads from the XML fallback URL', async () => {
@@ -127,6 +127,6 @@ describe('YouTube captionTracks bootstrap fallbacks', () => {
       }
     )
 
-    expect(transcript).toBe('From xml json')
+    expect(transcript?.text).toBe('From xml json')
   })
 })

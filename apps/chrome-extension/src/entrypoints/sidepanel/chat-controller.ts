@@ -34,6 +34,8 @@ export class ChatController {
   private readonly typingIndicatorHtml =
     '<span class="chatTyping" aria-label="Typing"><span></span><span></span><span></span></span>'
 
+  private readonly timestampPattern = /\[(\d{1,2}:\d{2}(?::\d{2})?)\]/g
+
   constructor(opts: ChatControllerOptions) {
     this.messagesEl = opts.messagesEl
     this.inputEl = opts.inputEl
@@ -94,17 +96,14 @@ export class ChatController {
       const msgEl = this.messagesEl.querySelector(`[data-id="${lastMsg.id}"]`)
       if (msgEl) {
         if (content.trim()) {
-          msgEl.innerHTML = this.markdown.render(content)
+          msgEl.innerHTML = this.markdown.render(this.linkifyTimestamps(content))
           msgEl.removeAttribute('data-placeholder')
         } else {
           msgEl.innerHTML = this.typingIndicatorHtml
           msgEl.setAttribute('data-placeholder', 'true')
         }
         msgEl.classList.add('streaming')
-        for (const a of Array.from(msgEl.querySelectorAll('a'))) {
-          a.setAttribute('target', '_blank')
-          a.setAttribute('rel', 'noopener noreferrer')
-        }
+        this.decorateAnchors(msgEl)
         this.onNewContent?.()
         this.scrollToBottom?.()
       }
@@ -131,16 +130,13 @@ export class ChatController {
 
     if (message.role === 'assistant') {
       if (message.content.trim()) {
-        msgEl.innerHTML = this.markdown.render(message.content)
+        msgEl.innerHTML = this.markdown.render(this.linkifyTimestamps(message.content))
       } else {
         msgEl.innerHTML = this.typingIndicatorHtml
         msgEl.classList.add('streaming')
         msgEl.setAttribute('data-placeholder', 'true')
       }
-      for (const a of Array.from(msgEl.querySelectorAll('a'))) {
-        a.setAttribute('target', '_blank')
-        a.setAttribute('rel', 'noopener noreferrer')
-      }
+      this.decorateAnchors(msgEl)
     } else {
       msgEl.textContent = message.content
     }
@@ -178,4 +174,43 @@ export class ChatController {
       this.contextEl.removeAttribute('data-state')
     }
   }
+
+  private linkifyTimestamps(content: string): string {
+    return content.replace(this.timestampPattern, (match, time) => {
+      const seconds = parseTimestampSeconds(time)
+      if (seconds == null) return match
+      return `[${time}](timestamp:${seconds})`
+    })
+  }
+
+  private decorateAnchors(root: HTMLElement) {
+    for (const a of Array.from(root.querySelectorAll('a'))) {
+      const href = a.getAttribute('href') ?? ''
+      if (href.startsWith('timestamp:')) {
+        a.classList.add('chatTimestamp')
+        a.removeAttribute('target')
+        a.removeAttribute('rel')
+        continue
+      }
+      a.setAttribute('target', '_blank')
+      a.setAttribute('rel', 'noopener noreferrer')
+    }
+  }
+}
+
+function parseTimestampSeconds(value: string): number | null {
+  const parts = value.split(':').map((part) => part.trim())
+  if (parts.length < 2 || parts.length > 3) return null
+  const secondsPart = parts.pop()
+  if (!secondsPart) return null
+  const seconds = Number(secondsPart)
+  if (!Number.isFinite(seconds) || seconds < 0) return null
+  const minutesPart = parts.pop()
+  if (minutesPart == null) return null
+  const minutes = Number(minutesPart)
+  if (!Number.isFinite(minutes) || minutes < 0) return null
+  const hoursPart = parts.pop()
+  const hours = hoursPart != null ? Number(hoursPart) : 0
+  if (!Number.isFinite(hours) || hours < 0) return null
+  return Math.floor(hours * 3600 + minutes * 60 + seconds)
 }

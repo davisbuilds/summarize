@@ -15,6 +15,7 @@ describe('chrome/chat-context', () => {
         extractionStrategy: 'html',
         mediaDurationSeconds: 120,
         transcriptSource: 'yt-dlp',
+        transcriptHasTimestamps: true,
       },
     })
 
@@ -25,6 +26,7 @@ describe('chrome/chat-context', () => {
     expect(content).toContain('Extraction strategy: html')
     expect(content).toContain('URL: https://example.com (duration 2m 00s)')
     expect(content).toContain('Transcription method: yt-dlp')
+    expect(content).toContain('Transcript timestamps: yes')
     expect(content).toContain('Summary (auto-generated):')
   })
 

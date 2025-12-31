@@ -6,15 +6,19 @@ import { buildDaemonRequestBody, buildSummarizeRequestBody } from '../lib/daemon
 import { createDaemonRecovery, isDaemonUnreachableError } from '../lib/daemon-recovery'
 import { loadSettings, patchSettings } from '../lib/settings'
 import { parseSseStream } from '../lib/sse'
+import type { AssistantMessage, Message } from '@mariozechner/pi-ai'
 
 type PanelToBg =
   | { type: 'panel:ready' }
   | { type: 'panel:summarize'; refresh?: boolean; inputMode?: 'page' | 'video' }
   | {
-      type: 'panel:chat'
-      messages: Array<{ role: 'user' | 'assistant'; content: string }>
+      type: 'panel:agent'
+      requestId: string
+      messages: Message[]
+      tools: string[]
       summary?: string | null
     }
+  | { type: 'panel:seek'; seconds: number }
   | { type: 'panel:ping' }
   | { type: 'panel:closed' }
   | { type: 'panel:rememberUrl'; url: string }
@@ -30,17 +34,18 @@ type RunStart = {
   reason: string
 }
 
-type ChatStartPayload = {
-  id: string
-  url: string
-}
-
 type BgToPanel =
   | { type: 'ui:state'; state: UiState }
   | { type: 'ui:status'; status: string }
   | { type: 'run:start'; run: RunStart }
   | { type: 'run:error'; message: string }
-  | { type: 'chat:start'; payload: ChatStartPayload }
+  | {
+      type: 'agent:response'
+      requestId: string
+      ok: boolean
+      assistant?: AssistantMessage
+      error?: string
+    }
 
 type HoverToBg =
   | {
@@ -67,6 +72,7 @@ type UiState = {
     autoSummarize: boolean
     hoverSummaries: boolean
     chatEnabled: boolean
+    automationEnabled: boolean
     fontSize: number
     lineHeight: number
     model: string
@@ -77,6 +83,7 @@ type UiState = {
 }
 
 type ExtractRequest = { type: 'extract'; maxChars: number }
+type SeekRequest = { type: 'seek'; seconds: number }
 type ExtractResponse =
   | {
       ok: true
@@ -88,6 +95,7 @@ type ExtractResponse =
       media?: { hasVideo: boolean; hasAudio: boolean; hasCaptions: boolean }
     }
   | { ok: false; error: string }
+type SeekResponse = { ok: true } | { ok: false; error: string }
 
 type PanelSession = {
   windowId: number
@@ -281,6 +289,64 @@ async function extractFromTab(
   return { ok: false, error: 'Content script not ready' }
 }
 
+async function seekInTab(
+  tabId: number,
+  seconds: number
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const req = { type: 'seek', seconds } satisfies SeekRequest
+
+  const tryInject = async (): Promise<{ ok: true } | { ok: false; error: string }> => {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ['content-scripts/extract.js'],
+      })
+      return { ok: true }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return {
+        ok: false,
+        error:
+          message.toLowerCase().includes('cannot access') ||
+          message.toLowerCase().includes('denied')
+            ? `Chrome blocked content access (${message}). Check extension “Site access” → “On all sites” (or allow this domain), then reload the tab.`
+            : `Failed to inject content script (${message}). Check extension “Site access”, then reload the tab.`,
+      }
+    }
+  }
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = (await chrome.tabs.sendMessage(tabId, req)) as SeekResponse
+      if (!res.ok) return { ok: false, error: res.error }
+      return { ok: true }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      const noReceiver =
+        message.includes('Receiving end does not exist') ||
+        message.includes('Could not establish connection')
+      if (noReceiver) {
+        const injected = await tryInject()
+        if (!injected.ok) return injected
+        await new Promise((r) => setTimeout(r, 120))
+        continue
+      }
+
+      if (attempt === 2) {
+        return {
+          ok: false,
+          error: noReceiver
+            ? 'Content script not ready. Check extension “Site access” → “On all sites”, then reload the tab.'
+            : message,
+        }
+      }
+      await new Promise((r) => setTimeout(r, 350))
+    }
+  }
+
+  return { ok: false, error: 'Content script not ready' }
+}
+
 export default defineBackground(() => {
   const panelSessions = new Map<number, PanelSession>()
   const lastMediaProbeByTab = new Map<number, string>()
@@ -298,6 +364,7 @@ export default defineBackground(() => {
     transcriptCharacters: number | null
     transcriptWordCount: number | null
     transcriptLines: number | null
+    transcriptTimedText: string | null
     mediaDurationSeconds: number | null
     diagnostics?: {
       strategy: string
@@ -413,6 +480,7 @@ export default defineBackground(() => {
             transcriptCharacters: null,
             transcriptWordCount: null,
             transcriptLines: null,
+            transcriptTimedText: null,
             mediaDurationSeconds: extracted.mediaDurationSeconds ?? null,
             diagnostics: null,
           }
@@ -438,6 +506,7 @@ export default defineBackground(() => {
         url: tab.url,
         mode: 'url',
         extractOnly: true,
+        timestamps: true,
         maxCharacters: null,
       }),
     })
@@ -455,6 +524,7 @@ export default defineBackground(() => {
         transcriptWordCount?: number | null
         transcriptLines?: number | null
         transcriptionProvider?: string | null
+        transcriptTimedText?: string | null
         mediaDurationSeconds?: number | null
         diagnostics?: {
           strategy: string
@@ -487,6 +557,7 @@ export default defineBackground(() => {
       transcriptCharacters: json.extracted.transcriptCharacters ?? null,
       transcriptWordCount: json.extracted.transcriptWordCount ?? null,
       transcriptLines: json.extracted.transcriptLines ?? null,
+      transcriptTimedText: json.extracted.transcriptTimedText ?? null,
       mediaDurationSeconds: json.extracted.mediaDurationSeconds ?? null,
       diagnostics: json.extracted.diagnostics ?? null,
     }
@@ -563,6 +634,7 @@ export default defineBackground(() => {
         autoSummarize: settings.autoSummarize,
         hoverSummaries: settings.hoverSummaries,
         chatEnabled: settings.chatEnabled,
+        automationEnabled: settings.automationEnabled,
         fontSize: settings.fontSize,
         lineHeight: settings.lineHeight,
         model: settings.model,
@@ -633,6 +705,7 @@ export default defineBackground(() => {
       transcriptCharacters: null,
       transcriptWordCount: null,
       transcriptLines: null,
+      transcriptTimedText: null,
       mediaDurationSeconds: extracted.mediaDurationSeconds ?? null,
       diagnostics: null,
     })
@@ -731,6 +804,7 @@ export default defineBackground(() => {
       transcriptCharacters: null,
       transcriptWordCount: null,
       transcriptLines: null,
+      transcriptTimedText: null,
       mediaDurationSeconds: resolvedPayload.mediaDurationSeconds ?? null,
       diagnostics: null,
     })
@@ -968,7 +1042,7 @@ export default defineBackground(() => {
           }
         )
         break
-      case 'panel:chat':
+      case 'panel:agent':
         void (async () => {
           const settings = await loadSettings()
           if (!settings.chatEnabled) {
@@ -996,15 +1070,16 @@ export default defineBackground(() => {
             return
           }
 
-          const chatPayload = raw as {
-            messages: Array<{ role: 'user' | 'assistant'; content: string }>
+          const agentPayload = raw as {
+            requestId: string
+            messages: Message[]
+            tools: string[]
             summary?: string | null
           }
-          const chatMessages = chatPayload.messages
           const summaryText =
-            typeof chatPayload.summary === 'string' ? chatPayload.summary.trim() : ''
+            typeof agentPayload.summary === 'string' ? agentPayload.summary.trim() : ''
           const pageContent = buildChatPageContent({
-            transcript: cachedExtract.text,
+            transcript: cachedExtract.transcriptTimedText ?? cachedExtract.text,
             summary: summaryText,
             summaryCap: settings.maxChars,
             metadata: {
@@ -1030,6 +1105,7 @@ export default defineBackground(() => {
               transcriptCharacters: cachedExtract.transcriptCharacters,
               transcriptWordCount: cachedExtract.transcriptWordCount,
               transcriptLines: cachedExtract.transcriptLines,
+              transcriptHasTimestamps: Boolean(cachedExtract.transcriptTimedText),
               truncated: cachedExtract.truncated,
             },
           })
@@ -1037,7 +1113,7 @@ export default defineBackground(() => {
           sendStatus(session, 'Sending to AI…')
 
           try {
-            const res = await fetch('http://127.0.0.1:8787/v1/chat', {
+            const res = await fetch('http://127.0.0.1:8787/v1/agent', {
               method: 'POST',
               headers: {
                 Authorization: `Bearer ${settings.token.trim()}`,
@@ -1047,23 +1123,36 @@ export default defineBackground(() => {
                 url: cachedExtract.url,
                 title: cachedExtract.title,
                 pageContent,
-                messages: chatMessages,
+                messages: agentPayload.messages,
                 model: settings.model,
+                tools: agentPayload.tools,
+                automationEnabled: settings.automationEnabled,
               }),
             })
-            const json = (await res.json()) as { ok: boolean; id?: string; error?: string }
-            if (!res.ok || !json.ok || !json.id) {
+            const json = (await res.json()) as {
+              ok: boolean
+              assistant?: AssistantMessage
+              error?: string
+            }
+            if (!res.ok || !json.ok || !json.assistant) {
               throw new Error(json.error || `${res.status} ${res.statusText}`)
             }
 
             void send(session, {
-              type: 'chat:start',
-              payload: { id: json.id, url: cachedExtract.url },
+              type: 'agent:response',
+              requestId: agentPayload.requestId,
+              ok: true,
+              assistant: json.assistant,
             })
             sendStatus(session, '')
           } catch (err) {
             const message = friendlyFetchError(err, 'Chat request failed')
-            void send(session, { type: 'run:error', message })
+            void send(session, {
+              type: 'agent:response',
+              requestId: agentPayload.requestId,
+              ok: false,
+              error: message,
+            })
             sendStatus(session, `Error: ${message}`)
           }
         })()
@@ -1094,6 +1183,20 @@ export default defineBackground(() => {
         break
       case 'panel:openOptions':
         void openOptionsWindow()
+        break
+      case 'panel:seek':
+        void (async () => {
+          const seconds = (raw as { seconds?: number }).seconds
+          if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) {
+            return
+          }
+          const tab = await getActiveTab(session.windowId)
+          if (!tab?.id) return
+          const result = await seekInTab(tab.id, Math.floor(seconds))
+          if (!result.ok) {
+            sendStatus(session, `Seek failed: ${result.error}`)
+          }
+        })()
         break
     }
   }

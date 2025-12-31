@@ -10,6 +10,7 @@ import {
   type FirecrawlMode,
   type TranscriptResolution,
 } from './types.js'
+import { formatTranscriptSegments } from '../../transcript/timestamps.js'
 
 const WWW_PREFIX_PATTERN = /^www\./i
 const TRANSCRIPT_LINE_SPLIT_PATTERN = /\r?\n/
@@ -188,6 +189,10 @@ export function finalizeExtractedLinkContent({
   const mediaDurationSeconds = resolveMediaDurationSecondsFromTranscriptMetadata(
     transcriptResolution.metadata
   )
+  const transcriptSegments = transcriptResolution.segments ?? null
+  const transcriptTimedText = transcriptSegments
+    ? formatTranscriptSegments(transcriptSegments)
+    : null
 
   return {
     url,
@@ -204,6 +209,8 @@ export function finalizeExtractedLinkContent({
     transcriptSource: transcriptResolution.source,
     transcriptionProvider,
     transcriptMetadata: transcriptResolution.metadata ?? null,
+    transcriptSegments,
+    transcriptTimedText,
     mediaDurationSeconds,
     video,
     isVideoOnly,

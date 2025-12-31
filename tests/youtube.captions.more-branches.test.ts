@@ -51,7 +51,7 @@ describe('YouTube captionTracks extra branches', () => {
       }
     )
 
-    expect(transcript).toBe('Hello world')
+    expect(transcript?.text).toBe('Hello world')
   })
 
   it('prefers manual captions over ASR for the same language', async () => {
@@ -96,7 +96,7 @@ describe('YouTube captionTracks extra branches', () => {
       }
     )
 
-    expect(transcript).toBe('Manual')
+    expect(transcript?.text).toBe('Manual')
   })
 
   it('handles invalid baseUrl and falls back to XML via string URL builder', async () => {
@@ -147,6 +147,6 @@ describe('YouTube captionTracks extra branches', () => {
       }
     )
 
-    expect(transcript).toBe('Hello & world\nagain')
+    expect(transcript?.text).toBe('Hello & world\nagain')
   })
 })

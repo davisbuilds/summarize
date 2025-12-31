@@ -31,6 +31,8 @@ const mocks = vi.hoisted(() => {
       transcriptSource: 'embedded',
       transcriptMetadata: null,
       transcriptionProvider: null,
+      transcriptSegments: null,
+      transcriptTimedText: null,
       mediaDurationSeconds: null,
       video: { kind: 'direct', url: _url },
       isVideoOnly: true,

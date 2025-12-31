@@ -3,6 +3,7 @@ import { defineContentScript } from 'wxt/utils/define-content-script'
 import { resolveMediaDurationSecondsFromData } from '../lib/media-duration'
 
 type ExtractRequest = { type: 'extract'; maxChars: number }
+type SeekRequest = { type: 'seek'; seconds: number }
 type ExtractResponse =
   | {
       ok: true
@@ -18,6 +19,7 @@ type ExtractResponse =
       }
     }
   | { ok: false; error: string }
+type SeekResponse = { ok: true } | { ok: false; error: string }
 
 function clampText(text: string, maxChars: number): { text: string; truncated: boolean } {
   if (text.length <= maxChars) return { text, truncated: false }
@@ -135,6 +137,50 @@ function extract(maxChars: number): ExtractResponse {
   }
 }
 
+function seekToSeconds(seconds: number): SeekResponse {
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    return { ok: false, error: 'Invalid timestamp' }
+  }
+  const media = document.querySelector('video, audio') as HTMLMediaElement | null
+  if (media) {
+    const wasPaused = media.paused
+    try {
+      media.currentTime = seconds
+      if (!wasPaused) {
+        void media.play().catch(() => {})
+      }
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : 'Seek failed' }
+    }
+  }
+
+  const player = document.getElementById('movie_player') as
+    | (HTMLElement & { seekTo?: (time: number, allowSeekAhead?: boolean) => void }) & {
+        getPlayerState?: () => number
+        pauseVideo?: () => void
+        playVideo?: () => void
+      }
+    | null
+  if (player?.seekTo) {
+    const state = typeof player.getPlayerState === 'function' ? player.getPlayerState() : null
+    try {
+      player.seekTo(seconds, true)
+      if (state === 2 && typeof player.pauseVideo === 'function') {
+        player.pauseVideo()
+      }
+      if (state === 1 && typeof player.playVideo === 'function') {
+        player.playVideo()
+      }
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : 'Seek failed' }
+    }
+  }
+
+  return { ok: false, error: 'No media element found' }
+}
+
 export default defineContentScript({
   matches: ['<all_urls>'],
   runAt: 'document_idle',
@@ -144,10 +190,20 @@ export default defineContentScript({
     ;(globalThis as unknown as Record<string, unknown>)[flag] = true
 
     chrome.runtime.onMessage.addListener(
-      (message: ExtractRequest, _sender, sendResponse: (response: ExtractResponse) => void) => {
-        if (message?.type !== 'extract') return
-        sendResponse(extract(message.maxChars))
-        return true
+      (
+        message: ExtractRequest | SeekRequest,
+        _sender,
+        sendResponse: (response: ExtractResponse | SeekResponse) => void
+      ) => {
+        if (message?.type === 'extract') {
+          sendResponse(extract(message.maxChars))
+          return true
+        }
+        if (message?.type === 'seek') {
+          sendResponse(seekToSeconds(message.seconds))
+          return true
+        }
+        return undefined
       }
     )
   },

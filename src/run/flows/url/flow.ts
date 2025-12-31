@@ -57,7 +57,7 @@ export async function runUrlFlow({
       flags.lengthArg.kind === 'preset'
         ? flags.lengthArg.preset
         : `${flags.lengthArg.maxCharacters} chars`
-    } maxOutputTokens=${formatOptionalNumber(flags.maxOutputTokensArg)} retries=${flags.retries} json=${flags.json} extract=${flags.extractMode} format=${flags.format} preprocess=${flags.preprocessMode} markdownMode=${flags.markdownMode} model=${model.requestedModelLabel} videoMode=${flags.videoMode} stream=${flags.streamingEnabled ? 'on' : 'off'} plain=${flags.plain}`,
+    } maxOutputTokens=${formatOptionalNumber(flags.maxOutputTokensArg)} retries=${flags.retries} json=${flags.json} extract=${flags.extractMode} format=${flags.format} preprocess=${flags.preprocessMode} markdownMode=${flags.markdownMode} model=${model.requestedModelLabel} videoMode=${flags.videoMode} timestamps=${flags.transcriptTimestamps ? 'on' : 'off'} stream=${flags.streamingEnabled ? 'on' : 'off'} plain=${flags.plain}`,
     flags.verboseColor
   )
   writeVerbose(
@@ -165,6 +165,7 @@ export async function runUrlFlow({
           : undefined,
       youtubeTranscript: flags.youtubeMode,
       mediaTranscript: flags.videoMode === 'transcript' ? 'prefer' : 'auto',
+      transcriptTimestamps: flags.transcriptTimestamps,
       firecrawl: flags.firecrawlMode,
       format: markdown.markdownRequested ? 'markdown' : 'text',
       markdownMode: markdown.markdownRequested ? markdown.effectiveMarkdownMode : undefined,

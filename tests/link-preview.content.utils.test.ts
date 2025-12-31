@@ -213,4 +213,25 @@ describe('link-preview content utils', () => {
     })
     expect(result.mediaDurationSeconds).toBe(123)
   })
+
+  it('adds timed transcript text when segments are available', () => {
+    const diagnostics = makeDiagnostics()
+    const result = finalizeExtractedLinkContent({
+      url: 'https://example.com',
+      baseContent: 'Transcript:\nhello',
+      maxCharacters: null,
+      title: null,
+      description: null,
+      siteName: null,
+      transcriptResolution: {
+        text: 'hello',
+        source: 'html',
+        segments: [{ startMs: 0, endMs: 1000, text: 'hello' }],
+      },
+      diagnostics,
+    })
+
+    expect(result.transcriptSegments).toEqual([{ startMs: 0, endMs: 1000, text: 'hello' }])
+    expect(result.transcriptTimedText).toBe('[0:00] hello')
+  })
 })

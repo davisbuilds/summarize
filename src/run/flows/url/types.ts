@@ -28,6 +28,7 @@ export type UrlFlowFlags = {
   youtubeMode: 'auto' | 'web' | 'yt-dlp' | 'apify' | 'no-auto'
   firecrawlMode: 'off' | 'auto' | 'always'
   videoMode: 'auto' | 'transcript' | 'understand'
+  transcriptTimestamps: boolean
   outputLanguage: OutputLanguage
   lengthArg: { kind: 'preset'; preset: SummaryLength } | { kind: 'chars'; maxCharacters: number }
   promptOverride?: string | null

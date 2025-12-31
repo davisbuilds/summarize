@@ -259,6 +259,7 @@ Instructions:
 - The page_content may include a "Summary (auto-generated)" and a "Full transcript"
 - Treat the summary as a quick reference; prefer the full transcript if they conflict
 - Use any Metadata section to understand the source and processing details
+- If the transcript includes timestamps like "[mm:ss]", cite them when referencing moments
 - Use Markdown formatting when helpful
 - Do not make up information not present in the page content`
 }

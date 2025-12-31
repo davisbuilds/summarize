@@ -102,6 +102,7 @@ export const fetchTranscript = async (
       return {
         text: direct.text,
         source: 'podcastTranscript',
+        segments: options.transcriptTimestamps ? direct.segments ?? null : null,
         attemptedProviders,
         notes: joinNotes(notes),
         metadata: {

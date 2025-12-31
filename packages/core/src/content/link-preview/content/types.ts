@@ -2,6 +2,7 @@ import type {
   CacheMode,
   ContentFetchDiagnostics,
   TranscriptDiagnostics,
+  TranscriptSegment,
   TranscriptSource,
 } from '../types.js'
 
@@ -20,6 +21,7 @@ export interface FetchLinkContentOptions {
   cacheMode?: CacheMode
   youtubeTranscript?: YoutubeTranscriptMode
   mediaTranscript?: MediaTranscriptMode
+  transcriptTimestamps?: boolean
   firecrawl?: FirecrawlMode
   format?: ContentFormat
   markdownMode?: MarkdownMode
@@ -30,6 +32,7 @@ export interface TranscriptResolution {
   source: TranscriptSource | null
   text: string | null
   metadata?: Record<string, unknown> | null
+  segments?: TranscriptSegment[] | null
 }
 
 export interface ExtractedLinkContent {
@@ -47,6 +50,8 @@ export interface ExtractedLinkContent {
   transcriptSource: TranscriptSource | null
   transcriptionProvider: string | null
   transcriptMetadata: Record<string, unknown> | null
+  transcriptSegments: TranscriptSegment[] | null
+  transcriptTimedText: string | null
   mediaDurationSeconds: number | null
   video: { kind: 'youtube' | 'direct'; url: string } | null
   isVideoOnly: boolean

@@ -32,6 +32,7 @@ import {
 interface ResolveTranscriptOptions {
   youtubeTranscriptMode?: ProviderFetchOptions['youtubeTranscriptMode']
   mediaTranscriptMode?: ProviderFetchOptions['mediaTranscriptMode']
+  transcriptTimestamps?: ProviderFetchOptions['transcriptTimestamps']
   cacheMode?: CacheMode
 }
 
@@ -49,6 +50,7 @@ export const resolveTranscriptForLink = async (
   {
     youtubeTranscriptMode,
     mediaTranscriptMode,
+    transcriptTimestamps,
     cacheMode: providedCacheMode,
   }: ResolveTranscriptOptions = {}
 ): Promise<TranscriptResolution> => {
@@ -67,6 +69,7 @@ export const resolveTranscriptForLink = async (
     url: normalizedUrl,
     cacheMode,
     transcriptCache: deps.transcriptCache,
+    transcriptTimestamps: Boolean(transcriptTimestamps),
   })
 
   const diagnostics: TranscriptDiagnostics = {
@@ -109,6 +112,7 @@ export const resolveTranscriptForLink = async (
     onProgress: deps.onProgress ?? null,
     youtubeTranscriptMode: youtubeTranscriptMode ?? 'auto',
     mediaTranscriptMode: mediaTranscriptMode ?? 'auto',
+    transcriptTimestamps: transcriptTimestamps ?? false,
   })
 
   if (shouldReportProgress) {
@@ -130,6 +134,21 @@ export const resolveTranscriptForLink = async (
   }
 
   if (providerResult.source !== null || providerResult.text !== null) {
+    if (transcriptTimestamps) {
+      const nextMeta = { ...(providerResult.metadata ?? {}) }
+      if (providerResult.segments && providerResult.segments.length > 0) {
+        nextMeta.timestamps = true
+        nextMeta.segments = providerResult.segments
+      } else if (nextMeta.timestamps == null) {
+        nextMeta.timestamps = false
+      }
+      providerResult.metadata = nextMeta
+    } else if (providerResult.segments && providerResult.segments.length > 0) {
+      providerResult.metadata = {
+        ...(providerResult.metadata ?? {}),
+        segments: providerResult.segments,
+      }
+    }
     await writeTranscriptCache({
       url: normalizedUrl,
       service: provider.id,
@@ -155,6 +174,9 @@ export const resolveTranscriptForLink = async (
       source: diagnostics.provider,
       metadata: cacheOutcome.cached.metadata ?? null,
       diagnostics,
+      segments: transcriptTimestamps
+        ? resolveSegmentsFromMetadata(cacheOutcome.cached.metadata)
+        : null,
     }
   }
 
@@ -163,6 +185,7 @@ export const resolveTranscriptForLink = async (
     source: providerResult.source,
     metadata: providerResult.metadata ?? null,
     diagnostics,
+    segments: transcriptTimestamps ? providerResult.segments ?? null : null,
   }
 }
 
@@ -201,4 +224,12 @@ const appendNote = (existing: string | null | undefined, next: string): string =
     return next
   }
   return `${existing}; ${next}`
+}
+
+const resolveSegmentsFromMetadata = (metadata?: Record<string, unknown> | null) => {
+  if (!metadata) return null
+  const segments = (metadata as { segments?: unknown }).segments
+  return Array.isArray(segments) && segments.length > 0
+    ? (segments as TranscriptResolution['segments'])
+    : null
 }

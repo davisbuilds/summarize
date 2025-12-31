@@ -1,5 +1,7 @@
 import { fetchWithTimeout } from '../../../link-preview/fetch-with-timeout.js'
+import type { TranscriptSegment } from '../../../link-preview/types.js'
 import { extractYoutubeBootstrapConfig, isRecord } from '../../utils.js'
+import { parseTimestampToMs } from '../../timestamps.js'
 
 const REQUEST_HEADERS: Record<string, string> = {
   'User-Agent':
@@ -35,6 +37,11 @@ type YoutubeBootstrapConfig = Record<string, unknown> & {
 
 type TranscriptRunRecord = Record<string, unknown> & { text?: unknown }
 const GET_TRANSCRIPT_ENDPOINT_REGEX = /"getTranscriptEndpoint":\{"params":"([^"]+)"\}/
+
+export type YoutubeTranscriptPayload = {
+  text: string
+  segments: TranscriptSegment[] | null
+}
 
 export const extractYoutubeiTranscriptConfig = (html: string): YoutubeTranscriptConfig | null => {
   try {
@@ -109,7 +116,7 @@ export const fetchTranscriptFromTranscriptEndpoint = async (
     config: YoutubeTranscriptConfig
     originalUrl: string
   }
-): Promise<string | null> => {
+): Promise<YoutubeTranscriptPayload | null> => {
   type YoutubeClientContext = Record<string, unknown> & { client?: unknown }
   const contextRecord = config.context as YoutubeClientContext
   const existingClient = isRecord(contextRecord.client)
@@ -194,7 +201,9 @@ function getArrayProperty(object: unknown, path: string[]): unknown[] | null {
   return Array.isArray(value) ? value : null
 }
 
-export const extractTranscriptFromTranscriptEndpoint = (data: unknown): string | null => {
+export const extractTranscriptFromTranscriptEndpoint = (
+  data: unknown
+): YoutubeTranscriptPayload | null => {
   if (!isRecord(data)) {
     return null
   }
@@ -219,12 +228,12 @@ export const extractTranscriptFromTranscriptEndpoint = (data: unknown): string |
     return null
   }
 
-  const segmentList = getNestedProperty(searchPanel, ['content'])
-  if (!segmentList) {
+  const segmentListNode = getNestedProperty(searchPanel, ['content'])
+  if (!segmentListNode) {
     return null
   }
 
-  const listRenderer = getNestedProperty(segmentList, ['transcriptSearchPanelRenderer'])
+  const listRenderer = getNestedProperty(segmentListNode, ['transcriptSearchPanelRenderer'])
   if (!listRenderer) {
     return null
   }
@@ -239,13 +248,14 @@ export const extractTranscriptFromTranscriptEndpoint = (data: unknown): string |
     return null
   }
 
-  const segments = getArrayProperty(segmentBody, ['initialSegments'])
-  if (!segments || segments.length === 0) {
+  const segmentList = getArrayProperty(segmentBody, ['initialSegments'])
+  if (!segmentList || segmentList.length === 0) {
     return null
   }
 
   const lines: string[] = []
-  for (const segment of segments) {
+  const segments: TranscriptSegment[] = []
+  for (const segment of segmentList) {
     const renderer = getNestedProperty(segment, ['transcriptSegmentRenderer'])
     if (!renderer) {
       continue
@@ -272,6 +282,18 @@ export const extractTranscriptFromTranscriptEndpoint = (data: unknown): string |
       .trim()
     if (text.length > 0) {
       lines.push(text)
+      const startCandidate = (renderer as Record<string, unknown>).startMs
+      const durationCandidate = (renderer as Record<string, unknown>).durationMs
+      const startMs = parseTimestampToMs(startCandidate, false)
+      const durationMs = parseTimestampToMs(durationCandidate, false)
+      if (startMs != null) {
+        const endMs = durationMs != null ? startMs + durationMs : null
+        segments.push({
+          startMs,
+          endMs,
+          text: text.replace(/\s+/g, ' ').trim(),
+        })
+      }
     }
   }
 
@@ -279,7 +301,10 @@ export const extractTranscriptFromTranscriptEndpoint = (data: unknown): string |
     return null
   }
 
-  return lines.join('\n')
+  return {
+    text: lines.join('\n'),
+    segments: segments.length > 0 ? segments : null,
+  }
 }
 
 export const extractYoutubeiBootstrap = (

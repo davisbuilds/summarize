@@ -18,6 +18,7 @@ export interface CacheReadArguments {
   url: string
   cacheMode: CacheMode
   transcriptCache: TranscriptCache | null
+  transcriptTimestamps?: boolean
 }
 
 export interface TranscriptCacheLookup {
@@ -30,6 +31,7 @@ export const readTranscriptCache = async ({
   url,
   cacheMode,
   transcriptCache,
+  transcriptTimestamps = false,
 }: CacheReadArguments): Promise<TranscriptCacheLookup> => {
   const cached = transcriptCache ? await transcriptCache.get({ url }) : null
   const diagnostics = buildBaseDiagnostics(cacheMode)
@@ -63,10 +65,29 @@ export const readTranscriptCache = async ({
   diagnostics.cacheStatus = 'hit'
   diagnostics.notes = appendNote(diagnostics.notes, 'Served transcript from cache')
 
+  const cachedSegments = extractSegments(cached.metadata)
+  const hasSegments = Boolean(cachedSegments && cachedSegments.length > 0)
+  const timestampsFlag = cached.metadata?.timestamps
+  if (
+    transcriptTimestamps &&
+    timestampsFlag !== false &&
+    (cachedSegments == null || cachedSegments.length === 0)
+  ) {
+    diagnostics.notes = appendNote(
+      diagnostics.notes,
+      'Cached transcript missing timestamps; fetching fresh copy'
+    )
+    return { cached, resolution: null, diagnostics }
+  }
+  if (transcriptTimestamps && timestampsFlag === false) {
+    diagnostics.notes = appendNote(diagnostics.notes, 'Transcript timestamps unavailable')
+  }
+
   const resolution: TranscriptResolution = {
     text: cached.content,
     source: provider,
     metadata: cached.metadata ?? null,
+    segments: transcriptTimestamps && hasSegments ? cachedSegments : null,
   }
   return { cached, resolution, diagnostics }
 }
@@ -142,4 +163,12 @@ export const writeTranscriptCache = async ({
     source: resolvedSource,
     metadata: result.metadata ?? null,
   })
+}
+
+function extractSegments(metadata: Record<string, unknown> | null | undefined) {
+  if (!metadata) return null
+  const segments = (metadata as { segments?: unknown }).segments
+  if (!Array.isArray(segments)) return null
+  const normalized = segments.filter((segment) => segment && typeof segment === 'object')
+  return normalized.length > 0 ? (normalized as TranscriptResolution['segments']) : null
 }

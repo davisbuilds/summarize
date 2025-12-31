@@ -151,6 +151,7 @@ export async function outputExtractedUrl({
         firecrawl: flags.firecrawlMode,
         format: flags.format,
         markdown: effectiveMarkdownMode,
+        timestamps: flags.transcriptTimestamps,
         length:
           flags.lengthArg.kind === 'preset'
             ? { kind: 'preset' as const, preset: flags.lengthArg.preset }
@@ -196,15 +197,23 @@ export async function outputExtractedUrl({
     return
   }
 
+  const extractCandidate =
+    flags.transcriptTimestamps &&
+    extracted.transcriptTimedText &&
+    extracted.transcriptSource &&
+    extracted.content.toLowerCase().startsWith('transcript:')
+      ? `Transcript:\n${extracted.transcriptTimedText}`
+      : extracted.content
+
   const renderedExtract =
     flags.format === 'markdown' && !flags.plain && isRichTty(io.stdout)
-      ? renderMarkdownAnsi(prepareMarkdownForTerminal(extracted.content), {
+      ? renderMarkdownAnsi(prepareMarkdownForTerminal(extractCandidate), {
           width: markdownRenderWidth(io.stdout, io.env),
           wrap: true,
           color: supportsColor(io.stdout, io.envForRun),
           hyperlinks: true,
         })
-      : extracted.content
+      : extractCandidate
 
   if (flags.format === 'markdown' && !flags.plain && isRichTty(io.stdout)) {
     io.stdout.write(`\n${renderedExtract.replace(/^\n+/, '')}`)
@@ -464,6 +473,7 @@ export async function summarizeExtractedUrl({
           firecrawl: flags.firecrawlMode,
           format: flags.format,
           markdown: effectiveMarkdownMode,
+          timestamps: flags.transcriptTimestamps,
           length:
             flags.lengthArg.kind === 'preset'
               ? { kind: 'preset' as const, preset: flags.lengthArg.preset }
@@ -548,6 +558,7 @@ export async function summarizeExtractedUrl({
         firecrawl: flags.firecrawlMode,
         format: flags.format,
         markdown: effectiveMarkdownMode,
+        timestamps: flags.transcriptTimestamps,
         length:
           flags.lengthArg.kind === 'preset'
             ? { kind: 'preset' as const, preset: flags.lengthArg.preset }

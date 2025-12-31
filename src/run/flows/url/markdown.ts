@@ -49,7 +49,10 @@ export function createMarkdownConverters(
 
   // Transcript markdown conversion (for YouTube URLs, only when --markdown-mode llm is explicit)
   const wantsTranscriptMarkdown =
-    ctx.flags.format === 'markdown' && options.isYoutubeUrl && ctx.flags.markdownMode === 'llm'
+    ctx.flags.format === 'markdown' &&
+    options.isYoutubeUrl &&
+    ctx.flags.markdownMode === 'llm' &&
+    !ctx.flags.transcriptTimestamps
 
   const markdownRequested = wantsHtmlMarkdown
   const transcriptMarkdownRequested = wantsTranscriptMarkdown
