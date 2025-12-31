@@ -741,9 +741,7 @@ test('sidepanel video selection forces transcript mode', async () => {
     await activateTabByUrl(harness, 'https://example.com')
     await waitForActiveTabUrl(harness, 'https://example.com')
 
-    await page.evaluate(() => {
-      chrome.runtime.sendMessage({ type: 'panel:summarize', inputMode: 'video', refresh: false })
-    })
+    await sendPanelMessage(page, { type: 'panel:summarize', inputMode: 'video', refresh: false })
     await expect.poll(() => getSummarizeCalls(harness)).toBe(1)
 
     const body = (await getSummarizeLastBody(harness)) as Record<string, unknown> | null
