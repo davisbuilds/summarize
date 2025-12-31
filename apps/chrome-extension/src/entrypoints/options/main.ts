@@ -29,6 +29,8 @@ const advancedToggleEl = byId<HTMLButtonElement>('advancedToggle')
 const hoverPromptEl = byId<HTMLTextAreaElement>('hoverPrompt')
 const hoverPromptResetBtn = byId<HTMLButtonElement>('hoverPromptReset')
 const chatToggleRoot = byId<HTMLDivElement>('chatToggle')
+const automationToggleRoot = byId<HTMLDivElement>('automationToggle')
+const automationPermissionsBtn = byId<HTMLButtonElement>('automationPermissions')
 const hoverSummariesToggleRoot = byId<HTMLDivElement>('hoverSummariesToggle')
 const extendedLoggingToggleRoot = byId<HTMLDivElement>('extendedLoggingToggle')
 const requestModeEl = byId<HTMLSelectElement>('requestMode')
@@ -47,6 +49,7 @@ const daemonStatusEl = byId<HTMLDivElement>('daemonStatus')
 
 let autoValue = defaultSettings.autoSummarize
 let chatEnabledValue = defaultSettings.chatEnabled
+let automationEnabledValue = defaultSettings.automationEnabled
 let hoverSummariesValue = defaultSettings.hoverSummaries
 let extendedLoggingValue = defaultSettings.extendedLogging
 let advancedOpen = false
@@ -391,6 +394,40 @@ const chatToggle = mountCheckbox(chatToggleRoot, {
   onCheckedChange: handleChatToggleChange,
 })
 
+const updateAutomationToggle = () => {
+  automationToggle.update({
+    id: 'options-automation',
+    label: 'Enable website automation',
+    checked: automationEnabledValue,
+    onCheckedChange: handleAutomationToggleChange,
+  })
+}
+const handleAutomationToggleChange = (checked: boolean) => {
+  automationEnabledValue = checked
+  updateAutomationToggle()
+}
+const automationToggle = mountCheckbox(automationToggleRoot, {
+  id: 'options-automation',
+  label: 'Enable website automation',
+  checked: automationEnabledValue,
+  onCheckedChange: handleAutomationToggleChange,
+})
+
+async function requestAutomationPermissions() {
+  if (!chrome.permissions) return
+  try {
+    await chrome.permissions.request({
+      permissions: ['userScripts', 'debugger'],
+    })
+  } catch {
+    // ignore
+  }
+}
+
+automationPermissionsBtn.addEventListener('click', () => {
+  void requestAutomationPermissions()
+})
+
 const updateHoverSummariesToggle = () => {
   hoverSummariesToggle.update({
     id: 'options-hover-summaries',
@@ -450,10 +487,12 @@ async function load() {
   hoverPromptEl.value = s.hoverPrompt || defaultSettings.hoverPrompt
   autoValue = s.autoSummarize
   chatEnabledValue = s.chatEnabled
+  automationEnabledValue = s.automationEnabled
   hoverSummariesValue = s.hoverSummaries
   extendedLoggingValue = s.extendedLogging
   updateAutoToggle()
   updateChatToggle()
+  updateAutomationToggle()
   updateHoverSummariesToggle()
   updateExtendedLoggingToggle()
   maxCharsEl.value = String(s.maxChars)
@@ -534,6 +573,7 @@ formEl.addEventListener('submit', (e) => {
       autoSummarize: autoValue,
       hoverSummaries: hoverSummariesValue,
       chatEnabled: chatEnabledValue,
+      automationEnabled: automationEnabledValue,
       extendedLogging: extendedLoggingValue,
       maxChars: Number(maxCharsEl.value) || defaultSettings.maxChars,
       requestMode: requestModeEl.value || defaultSettings.requestMode,

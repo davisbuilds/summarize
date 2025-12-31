@@ -12,6 +12,7 @@ export type Settings = {
   autoSummarize: boolean
   hoverSummaries: boolean
   chatEnabled: boolean
+  automationEnabled: boolean
   extendedLogging: boolean
   hoverPrompt: string
   model: string
@@ -176,6 +177,7 @@ export const defaultSettings: Settings = {
   autoSummarize: true,
   hoverSummaries: false,
   chatEnabled: true,
+  automationEnabled: false,
   extendedLogging: false,
   hoverPrompt:
     'Plain text only (no Markdown). Summarize the linked page concisely in 1-2 sentences; aim for 100-200 characters.',
@@ -230,6 +232,10 @@ export async function loadSettings(): Promise<Settings> {
       typeof raw.hoverSummaries === 'boolean' ? raw.hoverSummaries : defaultSettings.hoverSummaries,
     chatEnabled:
       typeof raw.chatEnabled === 'boolean' ? raw.chatEnabled : defaultSettings.chatEnabled,
+    automationEnabled:
+      typeof raw.automationEnabled === 'boolean'
+        ? raw.automationEnabled
+        : defaultSettings.automationEnabled,
     extendedLogging:
       typeof raw.extendedLogging === 'boolean'
         ? raw.extendedLogging

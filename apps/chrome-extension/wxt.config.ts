@@ -58,6 +58,7 @@ export default defineConfig({
       'scripting',
       'windows',
     ],
+    optional_permissions: ['userScripts', 'debugger'],
     host_permissions: ['<all_urls>', 'http://127.0.0.1:8787/*'],
     background: {
       type: 'module',

@@ -1688,6 +1688,18 @@ button.setup__pill.isActive {
   border: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
 }
 
+.chatMessage.tool {
+  align-self: flex-start;
+  background: color-mix(in srgb, var(--panel) 28%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--border) 55%, transparent);
+  font-size: 12px;
+}
+
+.chatMessage.tool.error {
+  border-color: color-mix(in srgb, #f87171 60%, transparent);
+  color: color-mix(in srgb, #f87171 80%, var(--text));
+}
+
 .chatMessage.assistant.streaming {
   border-color: color-mix(in srgb, var(--border) 40%, transparent);
   background: color-mix(in srgb, var(--panel) 30%, transparent);

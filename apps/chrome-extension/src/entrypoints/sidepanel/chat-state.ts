@@ -11,16 +11,42 @@ export type ChatContextUsage = {
   totalMessages: number
 }
 
+function messageTextLength(message: ChatMessage): number {
+  if (message.role === 'user') {
+    if (typeof message.content === 'string') return message.content.length
+    return message.content
+      .filter((part) => part.type === 'text')
+      .map((part) => part.text)
+      .join('').length
+  }
+  if (message.role === 'assistant') {
+    return message.content
+      .filter((part) => part.type === 'text')
+      .map((part) => part.text)
+      .join('').length
+  }
+  if (message.role === 'toolResult') {
+    return message.content
+      .filter((part) => part.type === 'text')
+      .map((part) => part.text)
+      .join('').length
+  }
+  return 0
+}
+
 export function compactChatHistory(
   messages: ChatMessage[],
   limits: ChatHistoryLimits
 ): ChatMessage[] {
-  const filtered = messages.filter((msg) => msg.content.trim().length > 0)
+  const filtered = messages.filter((msg) => {
+    if (msg.role !== 'user') return true
+    return messageTextLength(msg) > 0
+  })
   const trimmed: ChatMessage[] = []
   let totalChars = 0
   for (let i = filtered.length - 1; i >= 0; i -= 1) {
     const msg = filtered[i]
-    const len = msg.content.length
+    const len = messageTextLength(msg)
     if (trimmed.length >= limits.maxMessages) break
     if (trimmed.length > 0 && totalChars + len > limits.maxChars) break
     trimmed.push(msg)
@@ -33,17 +59,15 @@ export function computeChatContextUsage(
   messages: ChatMessage[],
   limits: ChatHistoryLimits
 ): ChatContextUsage {
-  const totalChars = messages.reduce((sum, msg) => sum + msg.content.length, 0)
+  const totalChars = messages.reduce((sum, msg) => sum + messageTextLength(msg), 0)
   const percent = Math.min(100, Math.round((totalChars / limits.maxChars) * 100))
   return { totalChars, percent, totalMessages: messages.length }
 }
 
 export function hasUserChatMessage(messages: ChatMessage[]): boolean {
-  return messages.some((msg) => msg.role === 'user' && msg.content.trim().length > 0)
+  return messages.some((msg) => msg.role === 'user' && messageTextLength(msg) > 0)
 }
 
 export function buildChatRequestMessages(messages: ChatMessage[]) {
-  return messages
-    .filter((msg) => msg.content.length > 0)
-    .map((msg) => ({ role: msg.role, content: msg.content }))
+  return messages.map(({ id: _id, ...rest }) => rest)
 }

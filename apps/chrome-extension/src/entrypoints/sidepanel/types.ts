@@ -1,3 +1,5 @@
+import type { Message } from '@mariozechner/pi-ai'
+
 export type UiState = {
   panelOpen: boolean
   daemon: { ok: boolean; authed: boolean; error?: string }
@@ -8,6 +10,7 @@ export type UiState = {
     autoSummarize: boolean
     hoverSummaries: boolean
     chatEnabled: boolean
+    automationEnabled: boolean
     fontSize: number
     lineHeight: number
     model: string
@@ -27,12 +30,7 @@ export type RunStart = {
 
 export type PanelPhase = 'idle' | 'setup' | 'connecting' | 'streaming' | 'error'
 
-export type ChatMessage = {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  timestamp: number
-}
+export type ChatMessage = Message & { id: string }
 
 export type PanelState = {
   ui: UiState | null

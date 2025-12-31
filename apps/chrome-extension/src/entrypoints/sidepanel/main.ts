@@ -1,4 +1,5 @@
 import MarkdownIt from 'markdown-it'
+import type { AssistantMessage, Message, ToolCall, ToolResultMessage } from '@mariozechner/pi-ai'
 
 import { parseSseEvent } from '../../../../../src/shared/sse-events.js'
 import { readPresetOrCustomValue } from '../../lib/combo'
@@ -9,6 +10,7 @@ import { parseSseStream } from '../../lib/sse'
 import { applyTheme } from '../../lib/theme'
 import { generateToken } from '../../lib/token'
 import { mountCheckbox } from '../../ui/zag-checkbox'
+import { executeToolCall, getAutomationToolNames } from '../../automation/tools'
 import { ChatController } from './chat-controller'
 import { type ChatHistoryLimits, compactChatHistory } from './chat-state'
 import { createHeaderController } from './header-controller'
@@ -22,7 +24,7 @@ type PanelToBg =
   | {
       type: 'panel:agent'
       requestId: string
-      messages: Array<Record<string, unknown>>
+      messages: Message[]
       tools: string[]
       summary?: string | null
     }
@@ -48,7 +50,7 @@ type BgToPanel =
       type: 'agent:response'
       requestId: string
       ok: boolean
-      assistant?: Record<string, unknown>
+      assistant?: AssistantMessage
       error?: string
     }
 
@@ -198,6 +200,45 @@ const chatController = new ChatController({
   scrollToBottom: () => scrollToBottom(),
   onNewContent: () => updateAutoScrollLock(),
 })
+
+type AgentResponse = { ok: boolean; assistant?: AssistantMessage; error?: string }
+const pendingAgentRequests = new Map<
+  string,
+  { resolve: (response: AgentResponse) => void; reject: (error: Error) => void }
+>()
+
+function wrapMessage(message: Message): ChatMessage {
+  return { ...message, id: crypto.randomUUID() }
+}
+
+function handleAgentResponse(msg: Extract<BgToPanel, { type: 'agent:response' }>) {
+  const pending = pendingAgentRequests.get(msg.requestId)
+  if (!pending) return
+  pendingAgentRequests.delete(msg.requestId)
+  pending.resolve({ ok: msg.ok, assistant: msg.assistant, error: msg.error })
+}
+
+async function requestAgent(messages: Message[], tools: string[], summary?: string | null) {
+  const requestId = crypto.randomUUID()
+  const response = new Promise<AgentResponse>((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      pendingAgentRequests.delete(requestId)
+      reject(new Error('Agent request timed out'))
+    }, 60_000)
+    pendingAgentRequests.set(requestId, {
+      resolve: (result) => {
+        window.clearTimeout(timeout)
+        resolve(result)
+      },
+      reject: (error) => {
+        window.clearTimeout(timeout)
+        reject(error)
+      },
+    })
+    send({ type: 'panel:agent', requestId, messages, tools, summary })
+  })
+  return response
+}
 
 chatMessagesEl.addEventListener('click', (event) => {
   const target = event.target as HTMLElement | null
@@ -803,6 +844,69 @@ function getChatHistoryKey(tabId: number) {
   return `chat:tab:${tabId}`
 }
 
+function buildEmptyUsage() {
+  return {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  }
+}
+
+function normalizeStoredMessage(raw: Record<string, unknown>): ChatMessage | null {
+  const role = raw.role
+  const timestamp = typeof raw.timestamp === 'number' ? raw.timestamp : Date.now()
+  const id = typeof raw.id === 'string' ? raw.id : crypto.randomUUID()
+
+  if (role === 'user') {
+    const content = raw.content
+    if (typeof content !== 'string' && !Array.isArray(content)) return null
+    return { ...(raw as Message), role: 'user', content, timestamp, id }
+  }
+
+  if (role === 'assistant') {
+    const content = Array.isArray(raw.content)
+      ? raw.content
+      : typeof raw.content === 'string'
+        ? [{ type: 'text', text: raw.content }]
+        : []
+    return {
+      ...(raw as Message),
+      role: 'assistant',
+      content,
+      api: typeof raw.api === 'string' ? raw.api : 'openai-completions',
+      provider: typeof raw.provider === 'string' ? raw.provider : 'openai',
+      model: typeof raw.model === 'string' ? raw.model : 'unknown',
+      usage: typeof raw.usage === 'object' && raw.usage ? raw.usage : buildEmptyUsage(),
+      stopReason: typeof raw.stopReason === 'string' ? raw.stopReason : 'stop',
+      timestamp,
+      id,
+    }
+  }
+
+  if (role === 'toolResult') {
+    const content = Array.isArray(raw.content)
+      ? raw.content
+      : typeof raw.content === 'string'
+        ? [{ type: 'text', text: raw.content }]
+        : []
+    return {
+      ...(raw as Message),
+      role: 'toolResult',
+      content,
+      toolCallId: typeof raw.toolCallId === 'string' ? raw.toolCallId : crypto.randomUUID(),
+      toolName: typeof raw.toolName === 'string' ? raw.toolName : 'tool',
+      isError: Boolean(raw.isError),
+      timestamp,
+      id,
+    }
+  }
+
+  return null
+}
+
 async function clearChatHistoryForTab(tabId: number | null) {
   if (!tabId) return
   chatHistoryCache.delete(tabId)
@@ -829,7 +933,10 @@ async function loadChatHistory(tabId: number): Promise<ChatMessage[] | null> {
     const res = await store.get(key)
     const raw = res?.[key]
     if (!Array.isArray(raw)) return null
-    const parsed = raw.filter((msg) => msg && typeof msg === 'object') as ChatMessage[]
+    const parsed = raw
+      .filter((msg) => msg && typeof msg === 'object')
+      .map((msg) => normalizeStoredMessage(msg as Record<string, unknown>))
+      .filter((msg): msg is ChatMessage => Boolean(msg))
     if (!parsed.length) return null
     chatHistoryCache.set(tabId, parsed)
     return parsed
@@ -1193,36 +1300,6 @@ const streamController = createStreamController({
   },
 })
 
-const chatStreamController = createStreamController({
-  mode: 'chat',
-  getToken: async () => (await loadSettings()).token,
-  onReset: () => {
-    clearMetricsForMode('chat')
-    lastChatError = null
-  },
-  onStatus: (text) => headerController.setStatus(text),
-  onPhaseChange: (phase) => {
-    if (phase === 'error') {
-      finishStreamingMessage()
-      setPhase('error', { error: lastChatError ?? 'Chat failed.' })
-    }
-  },
-  onMeta: () => {},
-  onMetrics: (summary) => {
-    setMetricsForMode('chat', summary, null, panelState.currentSource?.url ?? null)
-  },
-  onChunk: (content) => {
-    updateStreamingMessage(content)
-  },
-  onDone: () => {
-    finishStreamingMessage()
-  },
-  onError: (err) => {
-    const message = friendlyFetchError(err, 'Chat stream failed')
-    lastChatError = message
-    return message
-  },
-})
 
 async function ensureToken(): Promise<string> {
   const settings = await loadSettings()
@@ -1531,6 +1608,7 @@ function updateControls(state: UiState) {
     },
   })
   chatEnabledValue = state.settings.chatEnabled
+  automationEnabledValue = state.settings.automationEnabled
   applyChatEnabled()
   if (chatEnabledValue && activeTabId && chatController.getMessages().length === 0) {
     void restoreChatHistory()
@@ -1623,7 +1701,7 @@ function handleBgMessage(msg: BgToPanel) {
       lastAction = 'summarize'
       window.clearTimeout(autoKickTimer)
       if (panelState.chatStreaming) {
-        chatStreamController.abort()
+        finishStreamingMessage()
       }
       void clearChatHistoryForActiveTab()
       resetChatState()
@@ -1632,15 +1710,8 @@ function handleBgMessage(msg: BgToPanel) {
       panelState.lastMeta = { inputSummary: null, model: null, modelLabel: null }
       void streamController.start(msg.run)
       return
-    case 'chat:start':
-      lastAction = 'chat'
-      if (!chatEnabledValue) return
-      void chatStreamController.start({
-        id: msg.payload.id,
-        url: msg.payload.url,
-        title: panelState.currentSource?.title || null,
-        reason: 'chat',
-      })
+    case 'agent:response':
+      handleAgentResponse(msg)
       return
   }
 }
@@ -1659,7 +1730,7 @@ function scheduleAutoKick() {
 async function send(message: PanelToBg) {
   if (message.type === 'panel:summarize') {
     lastAction = 'summarize'
-  } else if (message.type === 'panel:chat') {
+  } else if (message.type === 'panel:agent') {
     lastAction = 'chat'
   }
   const port = await ensurePanelPort()
@@ -1764,26 +1835,50 @@ function toggleDrawer(force?: boolean, opts?: { animate?: boolean }) {
 }
 
 function resetChatState() {
-  if (panelState.chatStreaming) {
-    chatStreamController.abort()
-  }
   panelState.chatStreaming = false
   chatController.reset()
   clearQueuedMessages()
   chatJumpBtn.classList.remove('isVisible')
-}
-
-function updateStreamingMessage(content: string) {
-  chatController.updateStreamingMessage(content)
+  pendingAgentRequests.clear()
 }
 
 function finishStreamingMessage() {
   panelState.chatStreaming = false
   chatSendBtn.disabled = false
   chatInputEl.focus()
-  chatController.finishStreamingMessage()
   void persistChatHistory()
   maybeSendQueuedChat()
+}
+
+async function runAgentLoop() {
+  let tools = automationEnabledValue ? getAutomationToolNames() : []
+  if (tools.includes('debugger')) {
+    const hasDebugger = await chrome.permissions.contains({ permissions: ['debugger'] })
+    if (!hasDebugger) {
+      tools = tools.filter((tool) => tool !== 'debugger')
+    }
+  }
+
+  while (true) {
+    const messages = chatController.buildRequestMessages() as Message[]
+    const response = await requestAgent(messages, tools, panelState.summaryMarkdown)
+    if (!response.ok || !response.assistant) {
+      throw new Error(response.error || 'Agent failed')
+    }
+
+    const assistant = response.assistant
+    chatController.addMessage(wrapMessage(assistant))
+    scrollToBottom(true)
+
+    const toolCalls = assistant.content.filter((part) => part.type === 'toolCall') as ToolCall[]
+    if (toolCalls.length === 0) break
+
+    for (const call of toolCalls) {
+      const result = (await executeToolCall(call)) as ToolResultMessage
+      chatController.addMessage(wrapMessage(result))
+      scrollToBottom(true)
+    }
+  }
 }
 
 function startChatMessage(text: string) {
@@ -1792,29 +1887,28 @@ function startChatMessage(text: string) {
 
   clearError()
 
-  chatController.addMessage({
-    id: crypto.randomUUID(),
-    role: 'user',
-    content: input,
-    timestamp: Date.now(),
-  })
-
-  chatController.addMessage({
-    id: crypto.randomUUID(),
-    role: 'assistant',
-    content: '',
-    timestamp: Date.now(),
-  })
+  chatController.addMessage(
+    wrapMessage({ role: 'user', content: input, timestamp: Date.now() })
+  )
 
   panelState.chatStreaming = true
+  chatSendBtn.disabled = true
+  setActiveMetricsMode('chat')
   scrollToBottom(true)
   lastAction = 'chat'
 
-  send({
-    type: 'panel:chat',
-    messages: chatController.buildRequestMessages(),
-    summary: panelState.summaryMarkdown,
-  })
+  void (async () => {
+    try {
+      await runAgentLoop()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      lastChatError = message
+      headerController.setStatus(`Error: ${message}`)
+      setPhase('error', { error: message })
+    } finally {
+      finishStreamingMessage()
+    }
+  })()
 }
 
 function maybeSendQueuedChat() {
@@ -1830,31 +1924,27 @@ function maybeSendQueuedChat() {
 
 function retryChat() {
   if (!chatEnabledValue || panelState.chatStreaming) return
-  const messages = chatController.getMessages()
-  const hasUser = messages.some((msg) => msg.role === 'user' && msg.content.trim().length > 0)
-  if (!hasUser) return
+  if (!chatController.hasUserMessages()) return
 
   clearError()
-  const lastMessage = messages[messages.length - 1]
-  if (!lastMessage || lastMessage.role !== 'assistant' || lastMessage.content.trim().length > 0) {
-    chatController.addMessage({
-      id: crypto.randomUUID(),
-      role: 'assistant',
-      content: '',
-      timestamp: Date.now(),
-    })
-  } else {
-    chatController.updateStreamingMessage('')
-  }
-
   panelState.chatStreaming = true
+  chatSendBtn.disabled = true
+  setActiveMetricsMode('chat')
+  lastAction = 'chat'
   scrollToBottom(true)
 
-  send({
-    type: 'panel:chat',
-    messages: chatController.buildRequestMessages(),
-    summary: panelState.summaryMarkdown,
-  })
+  void (async () => {
+    try {
+      await runAgentLoop()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      lastChatError = message
+      headerController.setStatus(`Error: ${message}`)
+      setPhase('error', { error: message })
+    } finally {
+      finishStreamingMessage()
+    }
+  })()
 }
 
 function retryLastAction() {
@@ -1874,7 +1964,7 @@ function sendChatMessage() {
   chatInputEl.value = ''
   chatInputEl.style.height = 'auto'
 
-  const chatBusy = panelState.chatStreaming || chatStreamController.isStreaming()
+  const chatBusy = panelState.chatStreaming
   if (chatBusy || chatQueue.length > 0) {
     const queued = enqueueChatMessage(input)
     if (!queued) {

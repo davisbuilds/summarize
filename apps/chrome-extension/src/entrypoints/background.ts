@@ -62,6 +62,19 @@ type BgToHover =
   | { type: 'hover:done'; requestId: string; url: string }
   | { type: 'hover:error'; requestId: string; url: string; message: string }
 
+type NativeInputRequest = {
+  type: 'automation:native-input'
+  payload: {
+    action: 'click' | 'type' | 'press' | 'keydown' | 'keyup'
+    x?: number
+    y?: number
+    text?: string
+    key?: string
+  }
+}
+
+type NativeInputResponse = { ok: true } | { ok: false; error: string }
+
 type UiState = {
   panelOpen: boolean
   daemon: { ok: boolean; authed: boolean; error?: string }
@@ -345,6 +358,117 @@ async function seekInTab(
   }
 
   return { ok: false, error: 'Content script not ready' }
+}
+
+function resolveKeyCode(key: string): { code: string; keyCode: number; text?: string } {
+  const named: Record<string, number> = {
+    Enter: 13,
+    Tab: 9,
+    Backspace: 8,
+    Escape: 27,
+    ArrowLeft: 37,
+    ArrowUp: 38,
+    ArrowRight: 39,
+    ArrowDown: 40,
+    Delete: 46,
+    Home: 36,
+    End: 35,
+    PageUp: 33,
+    PageDown: 34,
+    Space: 32,
+  }
+  if (named[key]) {
+    return { code: key, keyCode: named[key] }
+  }
+  if (key.length === 1) {
+    const upper = key.toUpperCase()
+    return { code: upper, keyCode: upper.charCodeAt(0), text: key }
+  }
+  return { code: key, keyCode: 0 }
+}
+
+async function dispatchNativeInput(
+  tabId: number,
+  payload: NativeInputRequest['payload']
+): Promise<NativeInputResponse> {
+  const hasPermission = await chrome.permissions.contains({ permissions: ['debugger'] })
+  if (!hasPermission) {
+    return { ok: false, error: 'Debugger permission not granted.' }
+  }
+
+  try {
+    await chrome.debugger.attach({ tabId }, '1.3')
+  } catch (err) {
+    if (!(err instanceof Error) || !err.message.includes('already attached')) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  }
+
+  const send = (method: string, params: Record<string, unknown>) =>
+    chrome.debugger.sendCommand({ tabId }, method, params)
+
+  try {
+    switch (payload.action) {
+      case 'click': {
+        const x = payload.x ?? 0
+        const y = payload.y ?? 0
+        await send('Input.dispatchMouseEvent', {
+          type: 'mousePressed',
+          button: 'left',
+          clickCount: 1,
+          x,
+          y,
+        })
+        await send('Input.dispatchMouseEvent', {
+          type: 'mouseReleased',
+          button: 'left',
+          clickCount: 1,
+          x,
+          y,
+        })
+        return { ok: true }
+      }
+      case 'type': {
+        const text = payload.text ?? ''
+        if (!text) return { ok: false, error: 'Missing text' }
+        await send('Input.insertText', { text })
+        return { ok: true }
+      }
+      case 'press':
+      case 'keydown':
+      case 'keyup': {
+        const key = payload.key ?? ''
+        if (!key) return { ok: false, error: 'Missing key' }
+        const { code, keyCode, text } = resolveKeyCode(key)
+        const sendKey = async (type: string) =>
+          send('Input.dispatchKeyEvent', {
+            type,
+            key,
+            code,
+            text,
+            windowsVirtualKeyCode: keyCode,
+            nativeVirtualKeyCode: keyCode,
+          })
+        if (payload.action === 'press') {
+          await sendKey('keyDown')
+          await sendKey('keyUp')
+          return { ok: true }
+        }
+        await sendKey(payload.action === 'keydown' ? 'keyDown' : 'keyUp')
+        return { ok: true }
+      }
+      default:
+        return { ok: false, error: 'Unknown action' }
+    }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  } finally {
+    try {
+      await chrome.debugger.detach({ tabId })
+    } catch {
+      // ignore
+    }
+  }
 }
 
 export default defineBackground(() => {
@@ -1224,12 +1348,33 @@ export default defineBackground(() => {
   })
 
   chrome.runtime.onMessage.addListener(
-    (raw: HoverToBg, sender, sendResponse): boolean | undefined => {
+    (raw: HoverToBg | NativeInputRequest, sender, sendResponse): boolean | undefined => {
       if (!raw || typeof raw !== 'object' || typeof (raw as { type?: unknown }).type !== 'string') {
         return
       }
 
       const type = (raw as { type: string }).type
+      if (type === 'automation:native-input') {
+        const msg = raw as NativeInputRequest
+        void (async () => {
+          const tabId = sender.tab?.id
+          if (!tabId) {
+            try {
+              sendResponse({ ok: false, error: 'Missing sender tab' } satisfies NativeInputResponse)
+            } catch {
+              // ignore
+            }
+            return
+          }
+          const result = await dispatchNativeInput(tabId, msg.payload)
+          try {
+            sendResponse(result)
+          } catch {
+            // ignore
+          }
+        })()
+        return true
+      }
       if (type === 'hover:summarize') {
         const msg = raw as HoverToBg & { type: 'hover:summarize' }
         void (async () => {

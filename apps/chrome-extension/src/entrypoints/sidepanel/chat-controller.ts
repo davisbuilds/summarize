@@ -92,7 +92,7 @@ export class ChatController {
   updateStreamingMessage(content: string) {
     const lastMsg = this.messages[this.messages.length - 1]
     if (lastMsg?.role === 'assistant') {
-      lastMsg.content = content
+      lastMsg.content = [{ type: 'text', text: content }]
       const msgEl = this.messagesEl.querySelector(`[data-id="${lastMsg.id}"]`)
       if (msgEl) {
         if (content.trim()) {
@@ -129,16 +129,25 @@ export class ChatController {
     msgEl.dataset.id = message.id
 
     if (message.role === 'assistant') {
-      if (message.content.trim()) {
-        msgEl.innerHTML = this.markdown.render(this.linkifyTimestamps(message.content))
+      const { text, toolCalls } = splitAssistantMessage(message)
+      const rendered = buildAssistantMarkdown(text, toolCalls)
+      if (rendered.trim()) {
+        msgEl.innerHTML = this.markdown.render(this.linkifyTimestamps(rendered))
       } else {
         msgEl.innerHTML = this.typingIndicatorHtml
         msgEl.classList.add('streaming')
         msgEl.setAttribute('data-placeholder', 'true')
       }
       this.decorateAnchors(msgEl)
+    } else if (message.role === 'toolResult') {
+      msgEl.classList.add('tool')
+      if (message.isError) msgEl.classList.add('error')
+      const output = extractText(message)
+      const header = `Tool result: ${message.toolName}${message.isError ? ' (error)' : ''}`
+      const body = output ? `\n\n\`\`\`\n${output}\n\`\`\`` : ''
+      msgEl.innerHTML = this.markdown.render(`${header}${body}`)
     } else {
-      msgEl.textContent = message.content
+      msgEl.textContent = extractText(message)
     }
 
     if (opts?.prepend) {
@@ -196,6 +205,58 @@ export class ChatController {
       a.setAttribute('rel', 'noopener noreferrer')
     }
   }
+}
+
+function extractText(message: ChatMessage): string {
+  if (message.role === 'user') {
+    if (typeof message.content === 'string') return message.content
+    return message.content
+      .filter((part) => part.type === 'text')
+      .map((part) => part.text)
+      .join('')
+  }
+  if (message.role === 'assistant') {
+    return message.content
+      .filter((part) => part.type === 'text')
+      .map((part) => part.text)
+      .join('')
+  }
+  if (message.role === 'toolResult') {
+    return message.content
+      .filter((part) => part.type === 'text')
+      .map((part) => part.text)
+      .join('')
+  }
+  return ''
+}
+
+function splitAssistantMessage(message: ChatMessage): {
+  text: string
+  toolCalls: Array<{ name: string; arguments: Record<string, unknown> }>
+} {
+  const text = message.content
+    .filter((part) => part.type === 'text')
+    .map((part) => part.text)
+    .join('')
+  const toolCalls = message.content
+    .filter((part) => part.type === 'toolCall')
+    .map((call) => ({ name: call.name, arguments: call.arguments }))
+  return { text, toolCalls }
+}
+
+function buildAssistantMarkdown(
+  text: string,
+  toolCalls: Array<{ name: string; arguments: Record<string, unknown> }>
+): string {
+  if (!toolCalls.length) return text
+  const calls = toolCalls
+    .map(
+      (call) =>
+        `**Tool:** ${call.name}\n\n\`\`\`json\n${JSON.stringify(call.arguments, null, 2)}\n\`\`\``
+    )
+    .join('\n\n')
+  if (!text.trim()) return calls
+  return `${text}\n\n---\n\n${calls}`
 }
 
 function parseTimestampSeconds(value: string): number | null {
