@@ -94,4 +94,4 @@ jobs:
       - name: Extension E2E
         run: |
           xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' \
-            pnpm -C apps/chrome-extension test:e2e
+            pnpm -C apps/chrome-extension exec playwright test -c playwright.config.ts --project=chromium
