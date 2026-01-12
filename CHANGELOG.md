@@ -25,6 +25,7 @@
 - Automation: require userScripts (no isolated-world fallback), with improved guidance and in-panel permission notice.
 - Slides: honor explicit tool paths and add interval sampling fallback when scene detection is sparse.
 - Slides: enable the toggle on YouTube watch/short URLs (and other media-preferring URLs), switch the control to Video by default, and auto-refresh a summary when slides are turned on so slide extraction actually runs.
+- Slides: stream slide extraction status to the panel and show a spinner on the slides toggle while slides are processing.
 
 ## 0.9.0 - 2025-12-31
 

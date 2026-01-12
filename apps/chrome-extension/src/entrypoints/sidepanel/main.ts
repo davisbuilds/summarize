@@ -659,9 +659,13 @@ const setPhase = (phase: PanelPhase, opts?: { error?: string | null }) => {
         : 'Something went wrong.'
     showError(message)
     showInlineError(message)
+    setSlidesBusy(false)
   } else {
     clearError()
     clearInlineError()
+    if (phase !== 'streaming' && phase !== 'connecting') {
+      setSlidesBusy(false)
+    }
   }
   if (phase !== 'connecting' && phase !== 'streaming') {
     headerController.stopProgress()
@@ -924,6 +928,16 @@ function renderMarkdown(markdown: string) {
     a.setAttribute('rel', 'noopener noreferrer')
   }
   renderInlineSlides(renderEl)
+}
+
+let slidesBusy = false
+function setSlidesBusy(next: boolean) {
+  if (slidesBusy === next) return
+  slidesBusy = next
+  const toggle = document.querySelector<HTMLButtonElement>('.summarizeSlideToggle')
+  if (toggle) {
+    toggle.dataset.busy = next ? 'true' : 'false'
+  }
 }
 
 const slideModal = (() => {
@@ -1764,7 +1778,12 @@ const streamController = createStreamController({
     panelState.lastMeta = { inputSummary: null, model: null, modelLabel: null }
     lastStreamError = null
   },
-  onStatus: (text) => headerController.setStatus(text),
+  onStatus: (text) => {
+    headerController.setStatus(text)
+    const trimmed = text.trim()
+    const isSlideStatus = /^slides?/i.test(trimmed)
+    setSlidesBusy(isSlideStatus)
+  },
   onBaseTitle: (text) => headerController.setBaseTitle(text),
   onBaseSubtitle: (text) => headerController.setBaseSubtitle(text),
   onPhaseChange: (phase) => {
@@ -1795,6 +1814,7 @@ const streamController = createStreamController({
   },
   onSlides: (data) => {
     panelState.slides = data
+    setSlidesBusy(false)
     if (panelState.summaryMarkdown) {
       renderInlineSlides(renderEl)
     }
@@ -2260,6 +2280,7 @@ function updateControls(state: UiState) {
             }
           } else {
             hideSlideNotice()
+            setSlidesBusy(false)
           }
           slidesEnabledValue = nextValue
           await patchSettings({ slidesEnabled: slidesEnabledValue })
@@ -2306,6 +2327,9 @@ function handleBgMessage(msg: BgToPanel) {
       setPhase('connecting')
       lastAction = 'summarize'
       window.clearTimeout(autoKickTimer)
+      if (slidesEnabledValue && mediaAvailable) {
+        setSlidesBusy(true)
+      }
       if (panelState.chatStreaming) {
         finishStreamingMessage()
       }

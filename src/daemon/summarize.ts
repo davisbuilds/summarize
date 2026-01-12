@@ -351,6 +351,10 @@ export async function streamSummaryForUrl({
       onSlidesExtracted: (result) => {
         hooks?.onSlidesExtracted?.(result)
       },
+      onSlidesProgress: (text) => {
+        const trimmed = typeof text === 'string' ? text.trim() : ''
+        if (trimmed) writeStatus?.(trimmed)
+      },
       onLinkPreviewProgress: (event) => {
         const msg = formatProgress(event)
         if (msg) writeStatus?.(msg)

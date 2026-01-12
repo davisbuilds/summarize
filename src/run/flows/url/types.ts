@@ -101,6 +101,7 @@ export type UrlFlowHooks = {
   onModelChosen?: ((modelId: string) => void) | null
   onExtracted?: ((extracted: ExtractedLinkContent) => void) | null
   onSlidesExtracted?: ((slides: SlideExtractionResult) => void) | null
+  onSlidesProgress?: ((text: string) => void) | null
   onLinkPreviewProgress?: ((event: LinkPreviewProgressEvent) => void) | null
   onSummaryCached?: ((cached: boolean) => void) | null
   setTranscriptionCost: (costUsd: number | null, label: string | null) => void

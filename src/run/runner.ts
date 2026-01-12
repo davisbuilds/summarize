@@ -751,6 +751,8 @@ export async function runCli(
       hooks: {
         onModelChosen: null,
         onExtracted: null,
+        onSlidesExtracted: null,
+        onSlidesProgress: null,
         onLinkPreviewProgress: null,
         onSummaryCached: null,
         setTranscriptionCost,
