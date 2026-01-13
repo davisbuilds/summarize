@@ -108,6 +108,7 @@ type ExtractSlidesArgs = {
         ocrAvailable: boolean
       }
     }) => void
+    onSlidesProgress?: ((text: string) => void) | null
   } | null
 }
 
@@ -171,6 +172,20 @@ export async function extractSlidesForSource({
       return cached
     }
 
+    const reportSlidesProgress = (() => {
+      const onSlidesProgress = hooks?.onSlidesProgress
+      if (!onSlidesProgress) return null
+      let lastText = ''
+      return (label: string, percent: number, detail?: string) => {
+        const clamped = clamp(Math.round(percent), 0, 100)
+        const suffix = detail ? ` ${detail}` : ''
+        const text = `Slides: ${label}${suffix} ${clamped}%`
+        if (text === lastText) return
+        lastText = text
+        onSlidesProgress(text)
+      }
+    })()
+
     const warnings: string[] = []
     const workers = resolveSlidesWorkers(env)
     const totalStartedAt = Date.now()
@@ -191,12 +206,18 @@ export async function extractSlidesForSource({
       }
       tesseractPath = resolved
     }
+    const ocrEnabled = Boolean(settings.ocr && tesseractPath)
+    const frameStartPercent = 10
+    const frameSpanPercent = ocrEnabled ? 60 : 80
+    const ocrSpanPercent = ocrEnabled ? 25 : 0
+    const finalizePercent = frameStartPercent + frameSpanPercent + ocrSpanPercent
 
     {
       const prepareStartedAt = Date.now()
       await prepareSlidesDir(slidesDir)
       logSlidesTiming('prepare output dir', prepareStartedAt)
     }
+    reportSlidesProgress?.('detecting scenes', 5)
 
     let detectionInputPath = source.url
     let detectionCleanup: (() => Promise<void>) | null = null
@@ -374,6 +395,18 @@ export async function extractSlidesForSource({
         warnings
       )
 
+      const formatProgressCount = (completed: number, total: number) =>
+        total > 0 ? `(${completed}/${total})` : ''
+      const reportFrameProgress = (completed: number, total: number) => {
+        const ratio = total > 0 ? completed / total : 0
+        reportSlidesProgress?.(
+          'extracting frames',
+          frameStartPercent + ratio * frameSpanPercent,
+          formatProgressCount(completed, total)
+        )
+      }
+      reportFrameProgress(0, trimmed.length)
+
       const extractFrames = async () =>
         extractFramesAtTimestamps({
           ffmpegPath: ffmpegBinary,
@@ -382,6 +415,7 @@ export async function extractSlidesForSource({
           timestamps: trimmed.map((slide) => slide.timestamp),
           timeoutMs,
           workers,
+          onProgress: reportFrameProgress,
         })
       const extractFramesStartedAt = Date.now()
       let extractedSlides: SlideImage[]
@@ -441,15 +475,32 @@ export async function extractSlidesForSource({
 
       let slidesWithOcr = renamedSlides
       const ocrAvailable = Boolean(tesseractPath)
-      if (settings.ocr && tesseractPath) {
+      if (ocrEnabled && tesseractPath) {
         const ocrStartedAt = Date.now()
         logSlides(`ocr start count=${renamedSlides.length} mode=parallel workers=${workers}`)
-        slidesWithOcr = await runOcrOnSlides(renamedSlides, tesseractPath, workers)
+        const ocrStartPercent = frameStartPercent + frameSpanPercent
+        const reportOcrProgress = (completed: number, total: number) => {
+          const ratio = total > 0 ? completed / total : 0
+          reportSlidesProgress?.(
+            'running OCR',
+            ocrStartPercent + ratio * ocrSpanPercent,
+            formatProgressCount(completed, total)
+          )
+        }
+        reportOcrProgress(0, renamedSlides.length)
+        slidesWithOcr = await runOcrOnSlides(
+          renamedSlides,
+          tesseractPath,
+          workers,
+          reportOcrProgress
+        )
         const elapsedMs = logSlidesTiming('ocr done', ocrStartedAt)
         if (renamedSlides.length > 0) {
           logSlides(`ocr avgMsPerSlide=${Math.round(elapsedMs / renamedSlides.length)}`)
         }
       }
+
+      reportSlidesProgress?.('finalizing', finalizePercent)
 
       if (hooks?.onSlideChunk) {
         for (const slide of slidesWithOcr) {
@@ -483,6 +534,7 @@ export async function extractSlidesForSource({
       }
 
       await writeSlidesJson(result, slidesDir)
+      reportSlidesProgress?.('finalizing', 100)
       logSlidesTiming('slides total', totalStartedAt)
       return result
     } finally {
@@ -714,6 +766,7 @@ async function extractFramesAtTimestamps({
   timestamps,
   timeoutMs,
   workers,
+  onProgress,
 }: {
   ffmpegPath: string
   inputPath: string
@@ -721,6 +774,7 @@ async function extractFramesAtTimestamps({
   timestamps: number[]
   timeoutMs: number
   workers: number
+  onProgress?: ((completed: number, total: number) => void) | null
 }): Promise<SlideImage[]> {
   const slides: SlideImage[] = []
   const startedAt = Date.now()
@@ -752,7 +806,7 @@ async function extractFramesAtTimestamps({
     }
     return { index: index + 1, timestamp, imagePath: outputPath }
   })
-  const results = await runWithConcurrency(tasks, workers)
+  const results = await runWithConcurrency(tasks, workers, onProgress ?? undefined)
   const ordered = results.filter(Boolean).sort((a, b) => a.index - b.index)
   for (const slide of ordered) {
     slides.push(slide)
@@ -1388,11 +1442,14 @@ async function readSlidesCacheIfValid({
 
 async function runWithConcurrency<T>(
   tasks: Array<() => Promise<T>>,
-  workers: number
+  workers: number,
+  onProgress?: ((completed: number, total: number) => void) | null
 ): Promise<T[]> {
   if (tasks.length === 0) return []
   const concurrency = Math.max(1, Math.min(16, Math.round(workers)))
   const results: T[] = new Array(tasks.length)
+  const total = tasks.length
+  let completed = 0
   let nextIndex = 0
 
   const worker = async () => {
@@ -1400,7 +1457,12 @@ async function runWithConcurrency<T>(
       const current = nextIndex
       if (current >= tasks.length) return
       nextIndex += 1
-      results[current] = await tasks[current]()
+      try {
+        results[current] = await tasks[current]()
+      } finally {
+        completed += 1
+        onProgress?.(completed, total)
+      }
     }
   }
 
@@ -1412,7 +1474,8 @@ async function runWithConcurrency<T>(
 async function runOcrOnSlides(
   slides: SlideImage[],
   tesseractPath: string,
-  workers: number
+  workers: number,
+  onProgress?: ((completed: number, total: number) => void) | null
 ): Promise<SlideImage[]> {
   const tasks = slides.map((slide) => async () => {
     try {
@@ -1427,7 +1490,7 @@ async function runOcrOnSlides(
       return { ...slide, ocrText: '', ocrConfidence: 0 }
     }
   })
-  const results = await runWithConcurrency(tasks, workers)
+  const results = await runWithConcurrency(tasks, workers, onProgress ?? undefined)
   return results.sort((a, b) => a.index - b.index)
 }
 

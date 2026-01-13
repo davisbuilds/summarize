@@ -319,7 +319,7 @@ export async function runUrlFlow({
           writeVerbose(io.stderr, flags.verbose, 'cache hit slides', flags.verboseColor)
           slidesResult = cached
           ctx.hooks.onSlidesExtracted?.(slidesResult)
-          ctx.hooks.onSlidesProgress?.('Slides: cached')
+          ctx.hooks.onSlidesProgress?.('Slides: cached 100%')
           return
         }
         writeVerbose(io.stderr, flags.verbose, 'cache miss slides', flags.verboseColor)
@@ -328,7 +328,7 @@ export async function runUrlFlow({
         spinner.setText('Extracting slides…')
         oscProgress.setIndeterminate('Extracting slides')
       }
-      ctx.hooks.onSlidesProgress?.('Slides: extracting…')
+      ctx.hooks.onSlidesProgress?.('Slides: extracting 0%')
       slidesResult = await extractSlidesForSource({
         source,
         settings: flags.slides,
@@ -339,12 +339,13 @@ export async function runUrlFlow({
         tesseractPath: null,
         hooks: {
           onSlideChunk: (chunk) => ctx.hooks.onSlideChunk?.(chunk),
+          onSlidesProgress: ctx.hooks.onSlidesProgress ?? undefined,
         },
       })
       if (slidesResult) {
         ctx.hooks.onSlidesExtracted?.(slidesResult)
         ctx.hooks.onSlidesProgress?.(
-          `Slides: done (${slidesResult.slides.length.toString()} slides)`
+          `Slides: done (${slidesResult.slides.length.toString()} slides) 100%`
         )
         if (slidesCacheKey && cacheStore) {
           cacheStore.setJson('slides', slidesCacheKey, slidesResult, cacheState.ttlMs)
