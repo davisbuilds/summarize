@@ -1052,6 +1052,11 @@ const SLIDE_TEXT_WINDOW_MAX_SECONDS = 180
 const SLIDE_OCR_MIN_CHARS = 16
 const SLIDE_OCR_SIGNIFICANT_TOTAL = 200
 const SLIDE_OCR_SIGNIFICANT_SLIDES = 3
+const SLIDE_OCR_GIBBERISH_MIN_CHARS = 24
+const SLIDE_OCR_GIBBERISH_MIN_TOKENS = 8
+const SLIDE_OCR_GIBBERISH_MAX_SHORT_TOKEN_RATIO = 0.55
+const SLIDE_OCR_GIBBERISH_MAX_SYMBOL_RATIO = 0.42
+const SLIDE_OCR_GIBBERISH_WEIRD_SYMBOL_RATIO = 0.08
 const SLIDE_CUSTOM_LENGTH_PATTERN = /^(?<value>\d+(?:\.\d+)?)(?<unit>k|m)?$/i
 
 function resolveLengthTargetCharacters(lengthValue: string): number | null {
@@ -1089,6 +1094,50 @@ function resolveSlideWindowSeconds(lengthValue: string): number {
 
 function normalizeSlideText(value: string): string {
   return value.replace(/\s+/g, ' ').trim()
+}
+
+function normalizeOcrText(raw: string | null | undefined): string {
+  const text = normalizeSlideText(raw ?? '')
+  if (!text) return ''
+  if (text.length < SLIDE_OCR_GIBBERISH_MIN_CHARS) return text
+
+  const tokens = text.split(' ').filter(Boolean)
+  if (tokens.length === 0) return ''
+
+  const letterTokens = tokens.filter((token) => /\p{L}/u.test(token))
+  const shortLetterTokens = letterTokens.filter((token) => token.length <= 2)
+  const longWordishTokens = tokens.filter((token) => {
+    const stripped = token.replace(/[^\p{L}\p{N}]/gu, '')
+    return stripped.length >= 4 && /\p{L}/u.test(stripped)
+  })
+
+  const chars = Array.from(text)
+  const letters = chars.filter((char) => /\p{L}/u.test(char)).length
+  const digits = chars.filter((char) => /\p{N}/u.test(char)).length
+  const spaces = chars.filter((char) => char === ' ').length
+  const symbols = Math.max(0, chars.length - letters - digits - spaces)
+  const symbolRatio = chars.length > 0 ? symbols / chars.length : 0
+  const weirdSymbols = chars.filter((char) => /[=^~`_|]/.test(char)).length
+  const weirdSymbolRatio = chars.length > 0 ? weirdSymbols / chars.length : 0
+
+  if (
+    tokens.length >= SLIDE_OCR_GIBBERISH_MIN_TOKENS &&
+    letterTokens.length > 0 &&
+    shortLetterTokens.length / letterTokens.length >= SLIDE_OCR_GIBBERISH_MAX_SHORT_TOKEN_RATIO &&
+    longWordishTokens.length < 2
+  ) {
+    return ''
+  }
+
+  if (
+    symbolRatio >= SLIDE_OCR_GIBBERISH_MAX_SYMBOL_RATIO &&
+    weirdSymbolRatio >= SLIDE_OCR_GIBBERISH_WEIRD_SYMBOL_RATIO &&
+    longWordishTokens.length < 2
+  ) {
+    return ''
+  }
+
+  return text
 }
 
 function truncateSlideText(value: string, limit: number): string {
@@ -1139,7 +1188,7 @@ function getTranscriptTextForSlide(
 }
 
 function getOcrTextForSlide(slide: { ocrText?: string | null }, budget: number): string {
-  const text = normalizeSlideText(slide.ocrText ?? '')
+  const text = normalizeOcrText(slide.ocrText)
   return text ? truncateSlideText(text, budget) : ''
 }
 
@@ -1164,7 +1213,7 @@ function updateSlidesTextState() {
   let ocrSlides = 0
   if (panelState.slides) {
     for (const slide of panelState.slides.slides) {
-      const text = normalizeSlideText(slide.ocrText ?? '')
+      const text = normalizeOcrText(slide.ocrText)
       if (text.length > 0) slidesOcrAvailable = true
       if (text.length >= SLIDE_OCR_MIN_CHARS) {
         ocrTotal += text.length
