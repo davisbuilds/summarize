@@ -943,6 +943,8 @@ function setSlidesBusy(next: boolean) {
   headerController.setProgressOverride(next)
 }
 
+let slidesExpanded = false
+
 const slideModal = (() => {
   const root = document.createElement('div')
   root.className = 'slideModal'
@@ -970,12 +972,36 @@ const slideModal = (() => {
   }
 })()
 
-function openSlideModal(slide: { index: number; imageUrl: string; ocrText?: string | null }) {
+function openSlideModal(slide: {
+  index: number
+  imageUrl: string
+  ocrText?: string | null
+  timestamp?: number | null
+}) {
   slideModal.image.removeAttribute('src')
   void setSlideImage(slideModal.image, slide.imageUrl)
-  slideModal.title.textContent = `Slide ${slide.index}`
+  const timestamp = formatSlideTimestamp(slide.timestamp)
+  slideModal.title.textContent = timestamp
+    ? `Slide ${slide.index} · ${timestamp}`
+    : `Slide ${slide.index}`
   slideModal.text.textContent = slide.ocrText?.trim() || 'No OCR text available.'
   slideModal.root.dataset.open = 'true'
+}
+
+function formatSlideTimestamp(seconds: number | null | undefined): string | null {
+  if (seconds == null || !Number.isFinite(seconds)) return null
+  const total = Math.max(0, Math.floor(seconds))
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const secs = total % 60
+  const mm = minutes.toString().padStart(2, '0')
+  const ss = secs.toString().padStart(2, '0')
+  return hours > 0 ? `${hours}:${mm}:${ss}` : `${minutes}:${ss}`
+}
+
+function seekToSlideTimestamp(seconds: number | null | undefined) {
+  if (seconds == null || !Number.isFinite(seconds)) return
+  void send({ type: 'panel:seek', seconds: Math.floor(seconds) })
 }
 
 const MAX_SLIDE_STRIP = 12
@@ -988,21 +1014,42 @@ function clearSlideStrip(container: HTMLElement) {
 function renderSlideStrip(container: HTMLElement) {
   if (!panelState.slides) return
   clearSlideStrip(container)
-  const slides = panelState.slides.slides.slice(0, MAX_SLIDE_STRIP)
-  if (slides.length === 0) return
+  const allSlides = panelState.slides.slides
+  const slides = slidesExpanded ? allSlides : allSlides.slice(0, MAX_SLIDE_STRIP)
+  if (allSlides.length === 0 || slides.length === 0) return
 
   const root = document.createElement('div')
   root.className = 'slideStrip'
 
+  const header = document.createElement('div')
+  header.className = 'slideStrip__header'
+
   const title = document.createElement('div')
   title.className = 'slideStrip__title'
-  const total = panelState.slides.slides.length
+  const total = allSlides.length
   title.textContent =
-    total > slides.length ? `Slides (${total}) · showing ${slides.length}` : 'Slides'
-  root.appendChild(title)
+    !slidesExpanded && total > slides.length
+      ? `Slides (${total}) · showing ${slides.length}`
+      : `Slides (${total})`
+  header.appendChild(title)
+
+  const toggle = document.createElement('button')
+  toggle.type = 'button'
+  toggle.className = 'slideStrip__toggle'
+  toggle.textContent = slidesExpanded ? 'Collapse' : 'Expand'
+  toggle.setAttribute('aria-pressed', slidesExpanded ? 'true' : 'false')
+  toggle.addEventListener('click', () => {
+    slidesExpanded = !slidesExpanded
+    renderSlideStrip(container)
+  })
+  header.appendChild(toggle)
+  root.appendChild(header)
 
   const grid = document.createElement('div')
   grid.className = 'slideStrip__grid'
+  if (slidesExpanded) {
+    grid.classList.add('isExpanded')
+  }
   for (const slide of slides) {
     const button = document.createElement('button')
     button.type = 'button'
@@ -1012,14 +1059,18 @@ function renderSlideStrip(container: HTMLElement) {
     void setSlideImage(img, slide.imageUrl)
     const meta = document.createElement('div')
     meta.className = 'slideStrip__meta'
-    meta.textContent = `Slide ${slide.index}`
+    const timestamp = formatSlideTimestamp(slide.timestamp)
+    meta.textContent = timestamp ? `Slide ${slide.index} · ${timestamp}` : `Slide ${slide.index}`
     button.appendChild(img)
     button.appendChild(meta)
-    button.addEventListener('click', () => openSlideModal(slide))
+    button.addEventListener('click', () => {
+      seekToSlideTimestamp(slide.timestamp)
+      openSlideModal(slide)
+    })
     grid.appendChild(button)
   }
   root.appendChild(grid)
-  container.appendChild(root)
+  container.prepend(root)
 }
 
 function renderInlineSlides(container: HTMLElement, opts?: { fallback?: boolean }) {
@@ -1045,10 +1096,14 @@ function renderInlineSlides(container: HTMLElement, opts?: { fallback?: boolean 
     void setSlideImage(img, slide.imageUrl)
     const caption = document.createElement('div')
     caption.className = 'slideCaption'
-    caption.textContent = `Slide ${index}`
+    const timestamp = formatSlideTimestamp(slide.timestamp)
+    caption.textContent = timestamp ? `Slide ${index} · ${timestamp}` : `Slide ${index}`
     button.appendChild(img)
     button.appendChild(caption)
-    button.addEventListener('click', () => openSlideModal(slide))
+    button.addEventListener('click', () => {
+      seekToSlideTimestamp(slide.timestamp)
+      openSlideModal(slide)
+    })
     wrapper.appendChild(button)
     placeholder.replaceWith(wrapper)
     replacedCount += 1

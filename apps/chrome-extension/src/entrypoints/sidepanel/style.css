@@ -1912,12 +1912,27 @@ button.setup__pill.isActive {
   border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
 
+.slideStrip__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
 .slideStrip__title {
   font-size: 12px;
   font-weight: 700;
   color: var(--muted);
-  margin-bottom: 8px;
   letter-spacing: 0.1px;
+}
+
+.slideStrip__toggle {
+  padding: 4px 8px;
+  font-size: 11px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
 }
 
 .slideStrip__grid {
@@ -1927,6 +1942,13 @@ button.setup__pill.isActive {
   grid-auto-columns: minmax(140px, 1fr);
   overflow-x: auto;
   padding-bottom: 6px;
+}
+
+.slideStrip__grid.isExpanded {
+  grid-auto-flow: row;
+  grid-auto-columns: unset;
+  grid-template-columns: 1fr;
+  overflow-x: visible;
 }
 
 .slideStrip__item {
@@ -1940,12 +1962,21 @@ button.setup__pill.isActive {
   min-width: 140px;
 }
 
+.slideStrip__grid.isExpanded .slideStrip__item {
+  width: 100%;
+  min-width: 0;
+}
+
 .slideStrip__item img {
   width: 100%;
   height: 96px;
   object-fit: cover;
   border-radius: 12px 12px 8px 8px;
   display: block;
+}
+
+.slideStrip__grid.isExpanded .slideStrip__item img {
+  height: auto;
 }
 
 .slideStrip__meta {
@@ -1986,6 +2017,9 @@ button.setup__pill.isActive {
 
 .slideModal__body {
   padding: 14px 16px 18px;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  backdrop-filter: blur(10px);
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
 
 .slideModal__title {
