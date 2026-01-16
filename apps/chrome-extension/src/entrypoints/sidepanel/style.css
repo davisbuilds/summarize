@@ -1654,6 +1654,7 @@ button.setup__pill.isActive {
 
 .render {
   line-height: var(--line-height, 1.45);
+  padding: 0 6px;
 }
 
 .render > :first-child {
@@ -1975,7 +1976,7 @@ button.setup__pill.isActive {
 }
 
 .slideStrip {
-  margin-top: 14px;
+  margin-top: 6px;
   padding-bottom: 10px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
