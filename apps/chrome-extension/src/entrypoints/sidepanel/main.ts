@@ -299,6 +299,7 @@ function hideSlideNotice() {
 const slideImageCache = new Map<string, string>()
 const slideImagePending = new Map<string, Promise<string | null>>()
 const slideImageRetryTimers = new WeakMap<HTMLImageElement, number>()
+const SLIDE_THUMB_SELECTOR = '.slideStrip__thumb, .slideInline__thumb, .slideGallery__thumb'
 
 type SlideImageObserverEntry = { imageUrl: string }
 const slideImageObserverEntries = new WeakMap<HTMLImageElement, SlideImageObserverEntry>()
@@ -333,7 +334,7 @@ function observeSlideImage(img: HTMLImageElement, imageUrl: string) {
   if (!hadVisibleImage) {
     img.dataset.loaded = 'false'
   }
-  const thumb = img.closest<HTMLElement>('.slideStrip__thumb, .slideInline__thumb')
+  const thumb = img.closest<HTMLElement>(SLIDE_THUMB_SELECTOR)
   if (thumb && img.dataset.loaded !== 'true') thumb.classList.add('isPlaceholder')
   if (!isSameUrl) {
     img.dataset.slideRetryCount = '0'
@@ -344,9 +345,7 @@ function observeSlideImage(img: HTMLImageElement, imageUrl: string) {
   if (img.dataset.slideLoadListener !== 'true') {
     img.dataset.slideLoadListener = 'true'
     img.addEventListener('load', () => {
-      img.dataset.loaded = 'true'
-      const parent = img.closest<HTMLElement>('.slideStrip__thumb, .slideInline__thumb')
-      parent?.classList.remove('isPlaceholder')
+      markSlideImageLoaded(img)
     })
   }
   if (!slideImageObserver) {
@@ -356,6 +355,12 @@ function observeSlideImage(img: HTMLImageElement, imageUrl: string) {
   img.dataset.slideObserveArmed = 'true'
   slideImageObserverEntries.set(img, { imageUrl })
   slideImageObserver.observe(img)
+}
+
+function markSlideImageLoaded(img: HTMLImageElement) {
+  img.dataset.loaded = 'true'
+  const parent = img.closest<HTMLElement>(SLIDE_THUMB_SELECTOR)
+  parent?.classList.remove('isPlaceholder')
 }
 
 function clearSlideImageCache() {
@@ -417,6 +422,7 @@ async function setSlideImage(img: HTMLImageElement, imageUrl: string) {
   const cached = slideImageCache.get(imageUrl)
   if (cached) {
     if (img.src !== cached) img.src = cached
+    markSlideImageLoaded(img)
     return
   }
   img.dataset.slideImageUrl = imageUrl
