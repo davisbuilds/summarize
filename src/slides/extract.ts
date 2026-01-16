@@ -24,8 +24,6 @@ const DEFAULT_SLIDES_WORKERS = 8
 const DEFAULT_SLIDES_SAMPLE_COUNT = 8
 // Prefer broadly-decodable H.264/MP4 for ffmpeg stability.
 // (Some "bestvideo" picks AV1 which can fail on certain ffmpeg builds / hwaccel setups.)
-const DEFAULT_YT_DLP_FORMAT_DETECT =
-  'best[height<=360][vcodec^=avc1][ext=mp4]/best[height<=360][ext=mp4]/best[height<=360]/best'
 const DEFAULT_YT_DLP_FORMAT_EXTRACT =
   'bestvideo[height<=720][vcodec^=avc1][ext=mp4]/best[height<=720][vcodec^=avc1][ext=mp4]/bestvideo[height<=720][ext=mp4]/best[height<=720]'
 
@@ -55,20 +53,30 @@ function resolveSlidesSampleCount(env: Record<string, string | undefined>): numb
   return Math.max(3, Math.min(12, Math.round(parsed)))
 }
 
-function resolveSlidesYtDlpDetectFormat(env: Record<string, string | undefined>): string {
-  return (
-    env.SUMMARIZE_SLIDES_YTDLP_FORMAT ??
-    env.SLIDES_YTDLP_FORMAT ??
-    DEFAULT_YT_DLP_FORMAT_DETECT
-  ).trim()
-}
-
 function resolveSlidesYtDlpExtractFormat(env: Record<string, string | undefined>): string {
   return (
     env.SUMMARIZE_SLIDES_YTDLP_FORMAT_EXTRACT ??
     env.SLIDES_YTDLP_FORMAT_EXTRACT ??
     DEFAULT_YT_DLP_FORMAT_EXTRACT
   ).trim()
+}
+
+function resolveSlidesStreamFallback(env: Record<string, string | undefined>): boolean {
+  const raw = env.SLIDES_EXTRACT_STREAM?.trim().toLowerCase()
+  return raw === '1' || raw === 'true' || raw === 'yes'
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let value = bytes
+  let unit = units[0] ?? 'B'
+  for (let i = 1; i < units.length && value >= 1024; i += 1) {
+    value /= 1024
+    unit = units[i] ?? unit
+  }
+  const rounded = value >= 100 ? Math.round(value) : Math.round(value * 10) / 10
+  return `${rounded}${unit}`
 }
 
 function resolveToolPath(
@@ -217,7 +225,6 @@ export async function extractSlidesForSource({
       const P_FETCH_VIDEO = 6
       const P_DOWNLOAD_VIDEO = 35
       const P_DETECT_SCENES = 60
-      const P_EXTRACT_DOWNLOAD = 75
       const P_EXTRACT_FRAMES = 90
       const P_OCR = 99
       const P_FINAL = 100
@@ -229,10 +236,9 @@ export async function extractSlidesForSource({
       }
       reportSlidesProgress?.('preparing source', P_PREPARE)
 
-      let detectionInputPath = source.url
-      let detectionCleanup: (() => Promise<void>) | null = null
-      let extractionCleanup: (() => Promise<void>) | null = null
-      let detectionUsesStream = false
+      const allowStreamFallback = resolveSlidesStreamFallback(env)
+      let inputPath = source.url
+      let inputCleanup: (() => Promise<void>) | null = null
 
       if (source.kind === 'youtube') {
         if (!ytDlpPath) {
@@ -254,11 +260,13 @@ export async function extractSlidesForSource({
               reportSlidesProgress?.('downloading video', mapped, detail)
             },
           })
-          detectionInputPath = downloaded.filePath
-          detectionCleanup = downloaded.cleanup
-          detectionUsesStream = false
+          inputPath = downloaded.filePath
+          inputCleanup = downloaded.cleanup
           logSlidesTiming(`yt-dlp download (detect+extract, format=${format})`, downloadStartedAt)
         } catch (error) {
+          if (!allowStreamFallback) {
+            throw error
+          }
           warnings.push(`Failed to download video; falling back to stream URL: ${String(error)}`)
           reportSlidesProgress?.('fetching video', P_FETCH_VIDEO)
           const streamStartedAt = Date.now()
@@ -268,114 +276,60 @@ export async function extractSlidesForSource({
             format,
             timeoutMs,
           })
-          detectionInputPath = streamUrl
-          detectionUsesStream = true
+          inputPath = streamUrl
           logSlidesTiming(`yt-dlp stream url (detect+extract, format=${format})`, streamStartedAt)
+        }
+      } else if (source.kind === 'direct') {
+        reportSlidesProgress?.('downloading video', P_FETCH_VIDEO)
+        const downloadStartedAt = Date.now()
+        try {
+          const downloaded = await downloadRemoteVideo({
+            url: source.url,
+            timeoutMs,
+            onProgress: (percent, detail) => {
+              const ratio = clamp(percent / 100, 0, 1)
+              const mapped = P_FETCH_VIDEO + ratio * (P_DOWNLOAD_VIDEO - P_FETCH_VIDEO)
+              reportSlidesProgress?.('downloading video', mapped, detail)
+            },
+          })
+          inputPath = downloaded.filePath
+          inputCleanup = downloaded.cleanup
+          logSlidesTiming('download direct video (detect+extract)', downloadStartedAt)
+        } catch (error) {
+          if (!allowStreamFallback) {
+            throw error
+          }
+          warnings.push(`Failed to download video; falling back to stream URL: ${String(error)}`)
+          inputPath = source.url
         }
       }
 
       try {
         const ffmpegStartedAt = Date.now()
         reportSlidesProgress?.('detecting scenes', P_FETCH_VIDEO + 2)
-        const detect = async () =>
-          detectSlideTimestamps({
-            ffmpegPath: ffmpegBinary,
-            ffprobePath: ffprobeBinary,
-            inputPath: detectionInputPath,
-            sceneThreshold: settings.sceneThreshold,
-            autoTuneThreshold: settings.autoTuneThreshold,
-            env,
-            timeoutMs,
-            warnings,
-            workers,
-            sampleCount: resolveSlidesSampleCount(env),
-            onSegmentProgress: (completed, total) => {
-              const ratio = total > 0 ? completed / total : 0
-              const mapped = P_FETCH_VIDEO + 2 + ratio * (P_DETECT_SCENES - (P_FETCH_VIDEO + 2))
-              reportSlidesProgress?.(
-                'detecting scenes',
-                mapped,
-                total > 0 ? `(${completed}/${total})` : undefined
-              )
-            },
-          })
-        let detection: Awaited<ReturnType<typeof detect>>
-        try {
-          detection = await detect()
-          reportSlidesProgress?.('detecting scenes', P_DETECT_SCENES)
-          logSlidesTiming('ffmpeg scene-detect', ffmpegStartedAt)
-        } catch (error) {
-          if (source.kind !== 'youtube' || !detectionUsesStream) {
-            throw error
-          }
-          warnings.push(`Scene detection failed on stream URL; retrying download: ${String(error)}`)
-          if (!ytDlpPath) {
-            throw new Error(
-              'Slides for YouTube require yt-dlp (set YT_DLP_PATH or install yt-dlp).'
+        const detection = await detectSlideTimestamps({
+          ffmpegPath: ffmpegBinary,
+          ffprobePath: ffprobeBinary,
+          inputPath,
+          sceneThreshold: settings.sceneThreshold,
+          autoTuneThreshold: settings.autoTuneThreshold,
+          env,
+          timeoutMs,
+          warnings,
+          workers,
+          sampleCount: resolveSlidesSampleCount(env),
+          onSegmentProgress: (completed, total) => {
+            const ratio = total > 0 ? completed / total : 0
+            const mapped = P_FETCH_VIDEO + 2 + ratio * (P_DETECT_SCENES - (P_FETCH_VIDEO + 2))
+            reportSlidesProgress?.(
+              'detecting scenes',
+              mapped,
+              total > 0 ? `(${completed}/${total})` : undefined
             )
-          }
-          const format = resolveSlidesYtDlpDetectFormat(env)
-          reportSlidesProgress?.('downloading video', P_FETCH_VIDEO)
-          const downloadStartedAt = Date.now()
-          const downloaded = await downloadYoutubeVideo({
-            ytDlpPath,
-            url: source.url,
-            timeoutMs,
-            format,
-            onProgress: (percent, detail) => {
-              const ratio = clamp(percent / 100, 0, 1)
-              const mapped = P_FETCH_VIDEO + ratio * (P_DOWNLOAD_VIDEO - P_FETCH_VIDEO)
-              reportSlidesProgress?.('downloading video', mapped, detail)
-            },
-          })
-          detectionInputPath = downloaded.filePath
-          detectionCleanup = downloaded.cleanup
-          detectionUsesStream = false
-          logSlidesTiming(`yt-dlp download (detect, format=${format})`, downloadStartedAt)
-          const retryStartedAt = Date.now()
-          detection = await detect()
-          reportSlidesProgress?.('detecting scenes', P_DETECT_SCENES)
-          logSlidesTiming('ffmpeg scene-detect (retry)', retryStartedAt)
-        }
-
-        if (source.kind === 'youtube' && detectionUsesStream && detection.timestamps.length === 0) {
-          warnings.push(
-            'Scene detection returned zero timestamps on stream URL; retrying download.'
-          )
-          if (!ytDlpPath) {
-            throw new Error(
-              'Slides for YouTube require yt-dlp (set YT_DLP_PATH or install yt-dlp).'
-            )
-          }
-          const format = resolveSlidesYtDlpDetectFormat(env)
-          reportSlidesProgress?.('downloading video', P_FETCH_VIDEO)
-          const downloadStartedAt = Date.now()
-          const downloaded = await downloadYoutubeVideo({
-            ytDlpPath,
-            url: source.url,
-            timeoutMs,
-            format,
-            onProgress: (percent, detail) => {
-              const ratio = clamp(percent / 100, 0, 1)
-              const mapped = P_FETCH_VIDEO + ratio * (P_DOWNLOAD_VIDEO - P_FETCH_VIDEO)
-              reportSlidesProgress?.('downloading video', mapped, detail)
-            },
-          })
-          detectionInputPath = downloaded.filePath
-          detectionCleanup = downloaded.cleanup
-          detectionUsesStream = false
-          logSlidesTiming(`yt-dlp download (detect, format=${format})`, downloadStartedAt)
-          const retryStartedAt = Date.now()
-          detection = await detect()
-          reportSlidesProgress?.('detecting scenes', P_DETECT_SCENES)
-          logSlidesTiming('ffmpeg scene-detect (retry)', retryStartedAt)
-        }
-
-        let extractionInputPath = detectionInputPath
-        let extractionUsesStream = detectionUsesStream
-        if (source.kind === 'youtube' && !ytDlpPath) {
-          throw new Error('Slides for YouTube require yt-dlp (set YT_DLP_PATH or install yt-dlp).')
-        }
+          },
+        })
+        reportSlidesProgress?.('detecting scenes', P_DETECT_SCENES)
+        logSlidesTiming('ffmpeg scene-detect', ffmpegStartedAt)
 
         const interval = buildIntervalTimestamps({
           durationSeconds: detection.durationSeconds,
@@ -441,7 +395,7 @@ export async function extractSlidesForSource({
         const extractFrames = async () =>
           extractFramesAtTimestamps({
             ffmpegPath: ffmpegBinary,
-            inputPath: extractionInputPath,
+            inputPath,
             outputDir: slidesDir,
             timestamps: trimmed.map((slide) => slide.timestamp),
             segments: trimmed.map((slide) => slide.segment ?? null),
@@ -465,47 +419,7 @@ export async function extractSlidesForSource({
               : null,
           })
         const extractFramesStartedAt = Date.now()
-        let extractedSlides: SlideImage[]
-        try {
-          extractedSlides = await extractFrames()
-        } catch (error) {
-          if (source.kind !== 'youtube' || !extractionUsesStream) {
-            throw error
-          }
-          warnings.push(
-            `Frame extraction failed on stream URL; retrying download: ${String(error)}`
-          )
-          if (!ytDlpPath) {
-            throw new Error(
-              'Slides for YouTube require yt-dlp (set YT_DLP_PATH or install yt-dlp).'
-            )
-          }
-          const extractionFormat = resolveSlidesYtDlpExtractFormat(env)
-          reportSlidesProgress?.('downloading video', P_DETECT_SCENES)
-          const extractDownloadStartedAt = Date.now()
-          const downloaded = await downloadYoutubeVideo({
-            ytDlpPath,
-            url: source.url,
-            timeoutMs,
-            format: extractionFormat,
-            onProgress: (percent, detail) => {
-              const ratio = clamp(percent / 100, 0, 1)
-              const mapped = P_DETECT_SCENES + ratio * (P_EXTRACT_DOWNLOAD - P_DETECT_SCENES)
-              reportSlidesProgress?.('downloading video', mapped, detail)
-            },
-          })
-          extractionCleanup = downloaded.cleanup
-          extractionInputPath = downloaded.filePath
-          extractionUsesStream = false
-          await prepareSlidesDir(slidesDir)
-          logSlidesTiming(
-            `yt-dlp download (extract retry, format=${extractionFormat})`,
-            extractDownloadStartedAt
-          )
-          const retryStartedAt = Date.now()
-          extractedSlides = await extractFrames()
-          logSlidesTiming('extract frames (retry)', retryStartedAt)
-        }
+        const extractedSlides: SlideImage[] = await extractFrames()
         const extractElapsedMs = logSlidesTiming(
           `extract frames (count=${trimmed.length}, parallel=${workers})`,
           extractFramesStartedAt
@@ -591,11 +505,8 @@ export async function extractSlidesForSource({
         logSlidesTiming('slides total', totalStartedAt)
         return result
       } finally {
-        if (extractionCleanup) {
-          await extractionCleanup()
-        }
-        if (detectionCleanup) {
-          await detectionCleanup()
+        if (inputCleanup) {
+          await inputCleanup()
         }
       }
     },
@@ -698,6 +609,86 @@ async function downloadYoutubeVideo({
     cleanup: async () => {
       await fs.rm(dir, { recursive: true, force: true })
     },
+  }
+}
+
+async function downloadRemoteVideo({
+  url,
+  timeoutMs,
+  onProgress,
+}: {
+  url: string
+  timeoutMs: number
+  onProgress?: ((percent: number, detail?: string) => void) | null
+}): Promise<{ filePath: string; cleanup: () => Promise<void> }> {
+  const dir = await fs.mkdtemp(path.join(tmpdir(), `summarize-slides-${randomUUID()}-`))
+  let suffix = '.bin'
+  try {
+    const parsed = new URL(url)
+    const ext = path.extname(parsed.pathname)
+    if (ext) suffix = ext
+  } catch {
+    // ignore
+  }
+  const filePath = path.join(dir, `video${suffix}`)
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch(url, { signal: controller.signal })
+    if (!res.ok) {
+      throw new Error(`Download failed: ${res.status} ${res.statusText}`)
+    }
+    const totalRaw = res.headers.get('content-length')
+    const total = totalRaw ? Number(totalRaw) : 0
+    const hasTotal = Number.isFinite(total) && total > 0
+    const reader = res.body?.getReader()
+    if (!reader) {
+      throw new Error('Download failed: missing response body')
+    }
+    const handle = await fs.open(filePath, 'w')
+    let downloaded = 0
+    let lastPercent = -1
+    let lastReportedBytes = 0
+    const reportProgress = () => {
+      if (!onProgress) return
+      if (hasTotal) {
+        const percent = Math.max(0, Math.min(100, Math.round((downloaded / total) * 100)))
+        if (percent === lastPercent) return
+        lastPercent = percent
+        const detail = `(${formatBytes(downloaded)}/${formatBytes(total)})`
+        onProgress(percent, detail)
+        return
+      }
+      if (downloaded - lastReportedBytes < 2 * 1024 * 1024) return
+      lastReportedBytes = downloaded
+      onProgress(0, `(${formatBytes(downloaded)})`)
+    }
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        if (!value) continue
+        await handle.write(value)
+        downloaded += value.byteLength
+        reportProgress()
+      }
+    } finally {
+      await handle.close()
+    }
+    if (hasTotal) {
+      onProgress?.(100, `(${formatBytes(downloaded)}/${formatBytes(total)})`)
+    }
+    return {
+      filePath,
+      cleanup: async () => {
+        await fs.rm(dir, { recursive: true, force: true })
+      },
+    }
+  } catch (error) {
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => null)
+    throw error
+  } finally {
+    clearTimeout(timeout)
   }
 }
 

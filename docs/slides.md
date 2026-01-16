@@ -54,6 +54,7 @@ read_when:
   - Split transcript into segments with timestamps (already in payload).
 - Store per-slide text on client (no daemon model calls).
 - Ensure summary cache keys untouched; only client-only rendering.
+- Slide extraction downloads the media once for detect+extract; set `SLIDES_EXTRACT_STREAM=1` to allow stream fallback (lower accuracy).
 
 ## Steps
 1) Add slide-description builder in sidepanel using transcript timed text + OCR fallback.
