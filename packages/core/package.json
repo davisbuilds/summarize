@@ -37,7 +37,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "clean": "rm -rf dist",
+    "clean": "rimraf dist",
     "build": "pnpm clean && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.build.json --noEmit"
   },
@@ -53,6 +53,7 @@
     "@types/jsdom": "^27.0.0",
     "@types/node": "^25.0.6",
     "@types/sanitize-html": "^2.16.0",
+    "rimraf": "^6.1.2",
     "typescript": "^5.9.3"
   }
 }
