@@ -514,7 +514,6 @@ async function runSandboxedRepl(
   iframe.setAttribute('sandbox', 'allow-scripts')
   iframe.style.display = 'none'
   iframe.srcdoc = buildSandboxHtml()
-  document.body.appendChild(iframe)
 
   const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
 
@@ -530,6 +529,13 @@ async function runSandboxedRepl(
       }
       window.removeEventListener('message', onMessage)
       iframe.remove()
+    }
+
+    const sendExecute = () => {
+      iframe.contentWindow?.postMessage(
+        { source: 'summarize-repl', type: 'execute', requestId, code },
+        '*'
+      )
     }
 
     const onMessage = (event: MessageEvent) => {
@@ -684,18 +690,8 @@ async function runSandboxedRepl(
       signal.addEventListener('abort', abortHandler, { once: true })
     }
 
-    const sendExecute = () => {
-      iframe.contentWindow?.postMessage(
-        { source: 'summarize-repl', type: 'execute', requestId, code },
-        '*'
-      )
-    }
-
-    if (iframe.contentWindow?.document?.readyState === 'complete') {
-      sendExecute()
-    } else {
-      iframe.addEventListener('load', sendExecute, { once: true })
-    }
+    iframe.addEventListener('load', sendExecute, { once: true })
+    document.body.appendChild(iframe)
   })
 }
 
