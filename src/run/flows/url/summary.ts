@@ -760,9 +760,9 @@ export async function summarizeExtractedUrl({
         model.summaryEngine.runSummaryAttempt({
           attempt,
           prompt: promptPayload,
-          allowStreaming: flags.streamingEnabled && !flags.slides,
+          allowStreaming: flags.streamingEnabled,
           onModelChosen: onModelChosen ?? null,
-          streamHandler: flags.slides ? null : (slidesOutput?.streamHandler ?? null),
+          streamHandler: slidesOutput?.streamHandler ?? null,
         }),
     })
     summaryResult = attemptOutcome.result
