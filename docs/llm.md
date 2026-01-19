@@ -78,6 +78,10 @@ installed, auto mode can use local CLI models when `cli.enabled` is set (see `do
   - LLM retry attempts on timeout (default: 1).
 - `--json` (includes prompt + summary in one JSON object)
 
+## Prompt rules
+
+- Video and podcast summaries ignore sponsor/ads/promotional segments; do not include them in the summary.
+
 ## Z.AI
 
 Use `--model zai/<model>` (e.g. `zai/glm-4.7`). Defaults to Z.AI’s base URL and uses chat completions.

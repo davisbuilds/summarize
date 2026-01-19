@@ -27,6 +27,7 @@
 
 ### Fixes
 
+- Prompts: ignore sponsor/ads segments in video and podcast summaries.
 - Chrome Side Panel chat: keep auto-scroll pinned while streaming when you’re already at the bottom.
 - Chrome Side Panel: scope streams/state per window so other windows don’t wipe active summaries.
 - Chrome Side Panel chat: support JSON agent replies with explicit SSE/JSON negotiation to avoid “stream ended” errors.

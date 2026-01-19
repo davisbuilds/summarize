@@ -196,6 +196,9 @@ export function buildLinkSummaryPrompt({
       : ''
   const listGuidanceLine =
     'Use short paragraphs; use bullet lists only when they improve scanability; avoid rigid templates.'
+  const sponsorInstruction = hasTranscript
+    ? 'Ignore sponsor messages, ads, promos, and calls-to-action (including podcast ad reads); do not summarize them.'
+    : ''
 
   const baseInstructions = [
     audienceLine,
@@ -211,6 +214,7 @@ export function buildLinkSummaryPrompt({
     'Write in direct, factual language.',
     'Format the answer in Markdown and obey the length-specific formatting above.',
     listGuidanceLine,
+    sponsorInstruction,
     slideInstruction,
     'Base everything strictly on the provided content and never invent details.',
     timestampInstruction,

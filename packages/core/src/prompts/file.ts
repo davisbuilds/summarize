@@ -23,6 +23,7 @@ export function buildFileSummaryPrompt({
   lengthInstruction?: string | null
   languageInstruction?: string | null
 }): string {
+  const shouldIgnoreSponsors = Boolean(mediaType?.startsWith('audio/') || mediaType?.startsWith('video/'))
   const contentCharacters = typeof contentLength === 'number' ? contentLength : null
   const effectiveSummaryLength =
     typeof summaryLength === 'string'
@@ -57,6 +58,9 @@ export function buildFileSummaryPrompt({
     'You summarize files for curious users.',
     'Summarize the attached file.',
     'Be factual and do not invent details.',
+    shouldIgnoreSponsors
+      ? 'Ignore sponsor messages, ads, promos, and calls-to-action (including podcast ad reads); do not summarize them.'
+      : '',
     directive.guidance,
     directive.formatting,
     'Format the answer in Markdown.',
@@ -107,6 +111,9 @@ export function buildFileTextSummaryPrompt({
   lengthInstruction?: string | null
   languageInstruction?: string | null
 }): string {
+  const shouldIgnoreSponsors = Boolean(
+    originalMediaType?.startsWith('audio/') || originalMediaType?.startsWith('video/')
+  )
   const effectiveSummaryLength =
     typeof summaryLength === 'string'
       ? summaryLength
@@ -136,6 +143,9 @@ export function buildFileTextSummaryPrompt({
     'You summarize files for curious users.',
     'Summarize the file content below.',
     'Be factual and do not invent details.',
+    shouldIgnoreSponsors
+      ? 'Ignore sponsor messages, ads, promos, and calls-to-action (including podcast ad reads); do not summarize them.'
+      : '',
     directive.guidance,
     directive.formatting,
     'Format the answer in Markdown.',
