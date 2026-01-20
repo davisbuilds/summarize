@@ -88,4 +88,14 @@ describe('config extra branches', () => {
       /"output" must be an object/i
     )
   })
+
+  it('rejects non-object ui config', () => {
+    const root = writeJsonConfig({ ui: 1 })
+    expect(() => loadSummarizeConfig({ env: { HOME: root } })).toThrow(/"ui" must be an object/i)
+  })
+
+  it('rejects invalid ui.theme', () => {
+    const root = writeJsonConfig({ ui: { theme: 'nope' } })
+    expect(() => loadSummarizeConfig({ env: { HOME: root } })).toThrow(/ui\.theme/i)
+  })
 })

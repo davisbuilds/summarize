@@ -72,6 +72,19 @@ describe('config loading', () => {
     })
   })
 
+  it('supports ui.theme', () => {
+    const { root } = writeJsonConfig({
+      model: { id: 'openai/gpt-5-mini' },
+      ui: { theme: 'moss' },
+    })
+
+    const result = loadSummarizeConfig({ env: { HOME: root } })
+    expect(result.config).toEqual({
+      model: { id: 'openai/gpt-5-mini' },
+      ui: { theme: 'moss' },
+    })
+  })
+
   it('supports model shorthand strings ("auto", preset, provider/model)', () => {
     const { root, configPath } = writeJsonConfig({ model: 'auto' })
     expect(loadSummarizeConfig({ env: { HOME: root } }).config).toEqual({ model: { mode: 'auto' } })

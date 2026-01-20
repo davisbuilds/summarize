@@ -48,4 +48,46 @@ describe('tty spinner', () => {
 
     expect(stopSpy).not.toHaveBeenCalled()
   })
+
+  it('pauses, resumes, and clears when enabled', () => {
+    oraMock.mockReset()
+    const stopSpy = vi.fn()
+    const clearSpy = vi.fn()
+    const startSpy = vi.fn(function (this: { isSpinning: boolean }) {
+      this.isSpinning = true
+      return this
+    })
+    const renderSpy = vi.fn()
+    const spinnerState = {
+      isSpinning: true,
+      text: 'Loading',
+      stop: stopSpy,
+      clear: clearSpy,
+      render: renderSpy,
+      start: startSpy,
+    }
+    oraMock.mockImplementationOnce(() => spinnerState)
+
+    let writes = ''
+    const writable = new Writable({
+      write(chunk, _encoding, callback) {
+        writes += chunk.toString()
+        callback()
+      },
+    })
+
+    const spinner = startSpinner({ text: 'Loading', enabled: true, stream: writable })
+    spinner.pause()
+    spinner.setText('Paused')
+    spinner.pause()
+    spinner.resume()
+    spinner.stopAndClear()
+    spinner.clear()
+
+    expect(stopSpy).toHaveBeenCalled()
+    expect(clearSpy).toHaveBeenCalled()
+    expect(startSpy).toHaveBeenCalled()
+    expect(renderSpy).not.toHaveBeenCalled()
+    expect(writes).toContain('\u001b[2K')
+  })
 })
