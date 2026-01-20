@@ -56,7 +56,7 @@ describe('slides text helpers', () => {
       'ignored content',
     ].join('\n')
     const result = parseSlideSummariesFromMarkdown(markdown)
-    expect(result.get(1)).toBe('First line continued line')
+    expect(result.get(1)).toBe('First line\ncontinued line')
     expect(result.get(2)).toBe('Second line')
     expect(result.has(0)).toBe(false)
   })
@@ -111,6 +111,19 @@ describe('slides text helpers', () => {
     expect(coerced).toContain('[slide:2]')
     expect(coerced).toContain('First slide text.')
     expect(coerced).toContain('Second slide text.')
+  })
+
+  it('adds slide title lines when missing', () => {
+    const slides = [{ index: 1, timestamp: 4 }]
+    const coerced = coerceSummaryWithSlides({
+      markdown: 'Intro\n\n[slide:1]\nThis segment explains the setup.',
+      slides,
+      transcriptTimedText: null,
+      lengthArg: { kind: 'preset', preset: 'short' },
+    })
+    expect(coerced).toContain('Slide 1/1')
+    expect(coerced).toContain('0:04')
+    expect(coerced).toContain('This segment explains the setup.')
   })
 
   it('coerces summaries with markers and missing slides', () => {

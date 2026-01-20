@@ -31,6 +31,69 @@ const SLIDE_LABEL_PATTERN = /^(?:\[)?slide\s+(\d+)(?:\])?(?:\s*[\u00b7:-]\s*.*)?
 
 const clampNumber = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 
+const collapseLineWhitespace = (value: string): string => value.replace(/\s+/g, ' ').trim()
+
+const hasSlideLabel = (line: string, index: number, count: number): boolean => {
+  const normalized = collapseLineWhitespace(line).toLowerCase()
+  if (!normalized) return false
+  const target = `slide ${index}`.toLowerCase()
+  if (!normalized.includes(target)) return false
+  if (count <= 0) return true
+  return (
+    normalized.includes(`slide ${index}/${count}`) ||
+    normalized.includes(`slide ${index} / ${count}`) ||
+    normalized.includes(`slide ${index}`)
+  )
+}
+
+const stripQuotes = (value: string): string => value.replace(/[“”"]/g, '')
+
+const deriveSlideTitle = (text: string): string => {
+  const cleaned = stripQuotes(text)
+    .replace(/\[[^\]]*slide[^\]]*\]/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!cleaned) return 'Overview'
+  const sentenceMatch = cleaned.match(/[^.!?]+[.!?]+|[^.!?]+$/)
+  const sentence = (sentenceMatch?.[0] ?? cleaned).trim()
+  const words = sentence.split(/\s+/).filter(Boolean)
+  const short = words.slice(0, 8).join(' ').trim()
+  const candidate = short.length >= 12 ? short : sentence
+  const maxLength = 80
+  if (candidate.length <= maxLength) return candidate
+  const truncated = candidate.slice(0, maxLength).trimEnd()
+  const trimmed = truncated.replace(/\s+\S*$/, '').trim()
+  return trimmed || truncated.trim()
+}
+
+const ensureSlideTitleLine = ({
+  text,
+  slide,
+  total,
+}: {
+  text: string
+  slide: SlideTimelineEntry
+  total: number
+}): string => {
+  const trimmed = text.trim()
+  if (!trimmed) return ''
+  const lines = trimmed
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (lines.length === 0) return ''
+  const firstLine = lines[0] ?? ''
+  if (hasSlideLabel(firstLine, slide.index, total)) return trimmed
+  const title = deriveSlideTitle(trimmed)
+  const slideLabel = total > 0 ? `Slide ${slide.index}/${total}` : `Slide ${slide.index}`
+  const timestamp =
+    Number.isFinite(slide.timestamp) && typeof slide.timestamp === 'number'
+      ? formatTimestamp(slide.timestamp)
+      : null
+  const titleLine = `${title} - ${slideLabel}${timestamp ? ` - ${timestamp}` : ''}`
+  return `${titleLine}\n${trimmed}`
+}
+
 export function findSlidesSectionStart(markdown: string): number | null {
   if (!markdown) return null
   const heading = markdown.match(/^#{1,3}\s+Slides\b.*$/im)
@@ -65,7 +128,7 @@ export function parseSlideSummariesFromMarkdown(markdown: string): Map<number, s
   let buffer: string[] = []
   const flush = () => {
     if (currentIndex == null) return
-    const text = buffer.join('\n').trim().replace(/\s+/g, ' ')
+    const text = buffer.map((line) => collapseLineWhitespace(line)).join('\n').trim()
     result.set(currentIndex, text)
     currentIndex = null
     buffer = []
@@ -204,20 +267,7 @@ export function coerceSummaryWithSlides({
   lengthArg: { kind: 'preset'; preset: SummaryLength } | { kind: 'chars'; maxCharacters: number }
 }): string {
   if (!markdown.trim() || slides.length === 0) return markdown
-  const existingMarkers = extractSlideMarkers(markdown)
-  const hasSlidesHeading = /^#{1,3}\s+Slides\b/im.test(markdown)
-  const hasLabels = hasSlideLabelLines(markdown)
   const ordered = slides.slice().sort((a, b) => a.index - b.index)
-  const expectedIndexes = ordered.map((slide) => slide.index)
-  const markerSet = new Set(existingMarkers)
-  const markersComplete =
-    markerSet.size === expectedIndexes.length &&
-    expectedIndexes.every((index) => markerSet.has(index))
-
-  if (markersComplete && !hasSlidesHeading && !hasLabels) {
-    return trimIntroBeforeSlides(markdown)
-  }
-
   const { summary, slidesSection } = splitSummaryFromSlides(markdown)
   const intro = pickIntroParagraph(summary)
   const slideSummaries = slidesSection ? parseSlideSummariesFromMarkdown(markdown) : new Map()
@@ -232,7 +282,8 @@ export function coerceSummaryWithSlides({
     if (intro) parts.push(intro)
     for (const slide of ordered) {
       const text = slideSummaries.get(slide.index) ?? fallbackSummaries.get(slide.index) ?? ''
-      parts.push(text ? `[slide:${slide.index}]\n${text}` : `[slide:${slide.index}]`)
+      const withTitle = text ? ensureSlideTitleLine({ text, slide, total: ordered.length }) : ''
+      parts.push(withTitle ? `[slide:${slide.index}]\n${withTitle}` : `[slide:${slide.index}]`)
     }
     return parts.join('\n\n')
   }
@@ -259,7 +310,9 @@ export function coerceSummaryWithSlides({
     const slideIndex = ordered[i]?.index ?? i + 1
     const fallback = fallbackSummaries.get(slideIndex) ?? ''
     const text = segment || fallback
-    parts.push(text ? `[slide:${slideIndex}]\n${text}` : `[slide:${slideIndex}]`)
+    const slide = ordered[i] ?? { index: slideIndex, timestamp: Number.NaN }
+    const withTitle = text ? ensureSlideTitleLine({ text, slide, total }) : ''
+    parts.push(withTitle ? `[slide:${slideIndex}]\n${withTitle}` : `[slide:${slideIndex}]`)
   }
   return parts.join('\n\n')
 }

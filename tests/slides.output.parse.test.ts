@@ -17,7 +17,7 @@ More detail.
 Other section
 `
     const map = parseSlideSummariesFromMarkdown(markdown)
-    expect(map.get(1)).toBe('First summary line. More detail.')
+    expect(map.get(1)).toBe('First summary line.\nMore detail.')
     expect(map.get(3)).toBe('Third summary.')
   })
 

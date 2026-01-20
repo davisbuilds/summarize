@@ -31,6 +31,7 @@
 - Prompts: enforce no-ads/no-skipped language and italicized standout excerpts (no quotation marks).
 - Media: route direct media URLs to the transcription pipeline and raise the local media limit to 2GB (#47, thanks @n0an).
 - Slides: render Slide X/Y labels and parse slide markers more robustly in streaming output.
+- Slides: ensure slide summary segments start with a title line when missing.
 - Slides: progress updates during yt-dlp downloads and OSC progress mirrors slide extraction.
 - Slides: reuse the media cache for downloaded videos (even with `--no-cache`).
 - CLI: `--no-cache` now bypasses summary caching only; transcript/media caches still apply.
