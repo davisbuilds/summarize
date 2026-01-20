@@ -118,6 +118,26 @@ export async function runUrlFlow({
     enabled: flags.progressEnabled,
     stream: io.stderr,
   })
+  const handleSignal = () => {
+    try {
+      spinner.stopAndClear()
+    } catch {
+      // ignore
+    }
+    oscProgress.clear()
+  }
+  const handleSigint = () => {
+    handleSignal()
+    process.exit(130)
+  }
+  const handleSigterm = () => {
+    handleSignal()
+    process.exit(143)
+  }
+  if (flags.progressEnabled) {
+    process.once('SIGINT', handleSigint)
+    process.once('SIGTERM', handleSigterm)
+  }
   if (!hooks.onSlidesProgress && flags.progressEnabled) {
     hooks.onSlidesProgress = (text: string) => {
       spinner.setText(text)
@@ -644,6 +664,10 @@ export async function runUrlFlow({
       slidesOutput,
     })
   } finally {
+    if (flags.progressEnabled) {
+      process.off('SIGINT', handleSigint)
+      process.off('SIGTERM', handleSigterm)
+    }
     hooks.clearProgressIfCurrent(pauseProgressLine)
     stopProgress()
   }

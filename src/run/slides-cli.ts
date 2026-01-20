@@ -144,6 +144,26 @@ export async function handleSlidesCliRequest({
     enabled: progressEnabled,
     stream: stderr,
   })
+  const handleSignal = () => {
+    try {
+      spinner.stopAndClear()
+    } catch {
+      // ignore
+    }
+    oscProgress?.clear()
+  }
+  const handleSigint = () => {
+    handleSignal()
+    process.exit(130)
+  }
+  const handleSigterm = () => {
+    handleSignal()
+    process.exit(143)
+  }
+  if (progressEnabled) {
+    process.once('SIGINT', handleSigint)
+    process.once('SIGTERM', handleSigterm)
+  }
   const verboseColor = supportsColor(stderr, envForRun)
   const logSlides = (message: string) => {
     writeVerbose(stderr, verboseEnabled, `slides ${message}`, verboseColor)
@@ -184,6 +204,10 @@ export async function handleSlidesCliRequest({
   } finally {
     spinner.stopAndClear()
     oscProgress?.clear()
+    if (progressEnabled) {
+      process.off('SIGINT', handleSigint)
+      process.off('SIGTERM', handleSigterm)
+    }
   }
 
   if (opts.json) {
