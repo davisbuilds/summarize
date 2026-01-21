@@ -472,6 +472,7 @@ async function closeExtension(context: BrowserContext, userDataDir: string) {
 }
 
 const DAEMON_PORT = 8787
+const DEFAULT_DAEMON_TOKEN = 'test-token'
 const BLOCKED_ENV_KEYS = [
   'ANTHROPIC_API_KEY',
   'GEMINI_API_KEY',
@@ -529,6 +530,75 @@ function createSampleVideo(outputPath: string) {
   if (result.status === 0) return
   const detail = result.stderr ? result.stderr.toString().trim() : 'ffmpeg failed'
   throw new Error(`ffmpeg failed: ${detail}`)
+}
+
+async function waitForSlidesSnapshot(
+  runId: string,
+  token: string,
+  timeoutMs = 60_000
+): Promise<{ slides: Array<unknown> }> {
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < timeoutMs) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 5000)
+    try {
+      const res = await fetch(`http://127.0.0.1:8787/v1/summarize/${runId}/slides`, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
+      })
+      if (res.ok) {
+        const json = (await res.json()) as { ok?: boolean; slides?: { slides?: Array<unknown> } }
+        if (json?.ok && json.slides?.slides && json.slides.slides.length > 0) {
+          return json.slides
+        }
+      }
+    } catch {
+      // ignore and retry
+    } finally {
+      clearTimeout(timer)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+  }
+  throw new Error('Timed out waiting for slides snapshot')
+}
+
+async function startDaemonSlidesRun(url: string, token: string): Promise<string> {
+  const res = await fetch('http://127.0.0.1:8787/v1/summarize', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      url,
+      mode: 'url',
+      videoMode: 'transcript',
+      slides: true,
+      slidesOcr: true,
+      timestamps: true,
+      maxCharacters: null,
+    }),
+  })
+  const json = (await res.json()) as { ok?: boolean; id?: string; error?: string }
+  if (!res.ok || !json.ok || !json.id) {
+    throw new Error(json.error || `${res.status} ${res.statusText}`)
+  }
+  return json.id
+}
+
+function readDaemonToken(): string | null {
+  const envToken = typeof process.env.SUMMARIZE_DAEMON_TOKEN === 'string'
+    ? process.env.SUMMARIZE_DAEMON_TOKEN.trim()
+    : ''
+  if (envToken) return envToken
+  try {
+    const raw = fs.readFileSync(path.join(os.homedir(), '.summarize', 'daemon.json'), 'utf8')
+    const json = JSON.parse(raw) as { token?: unknown }
+    const token = typeof json.token === 'string' ? json.token.trim() : ''
+    return token || null
+  } catch {
+    return null
+  }
 }
 
 test('sidepanel loads without runtime errors', async ({ browserName: _browserName }, testInfo) => {
@@ -1328,7 +1398,13 @@ test('sidepanel extracts slides from local video via daemon', async ({
     test.skip(true, 'ffmpeg is required for slide extraction.')
   }
   if (await isPortInUse(DAEMON_PORT)) {
-    test.skip(true, `Port ${DAEMON_PORT} is already in use.`)
+    const token = readDaemonToken()
+    if (!token) {
+      test.skip(
+        true,
+        `Port ${DAEMON_PORT} is in use, but daemon token is missing. Set SUMMARIZE_DAEMON_TOKEN or ensure ~/.summarize/daemon.json exists.`
+      )
+    }
   }
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'summarize-slides-e2e-'))
@@ -1413,31 +1489,42 @@ test('sidepanel extracts slides from local video via daemon', async ({
     })
   })
 
-  const token = 'test-token'
-  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'summarize-daemon-e2e-'))
-  const abortController = new AbortController()
-  let resolveReady: (() => void) | null = null
-  const ready = new Promise<void>((resolve) => {
-    resolveReady = resolve
-  })
-  const env = { ...process.env, HOME: homeDir, USERPROFILE: homeDir, TESSERACT_PATH: '/nonexistent' }
-  for (const key of BLOCKED_ENV_KEYS) {
-    delete env[key]
-  }
+  const portBusy = await isPortInUse(DAEMON_PORT)
+  const externalToken = portBusy ? readDaemonToken() : null
+  const token = externalToken ?? DEFAULT_DAEMON_TOKEN
+  const homeDir = portBusy ? null : fs.mkdtempSync(path.join(os.tmpdir(), 'summarize-daemon-e2e-'))
+  const abortController = portBusy ? null : new AbortController()
+  let daemonPromise: Promise<void> | null = null
 
-  const daemonPromise = runDaemonServer({
-    env,
-    fetchImpl: fetch,
-    config: { token, port: DAEMON_PORT, version: 1, installedAt: new Date().toISOString() },
-    port: DAEMON_PORT,
-    signal: abortController.signal,
-    onListening: () => resolveReady?.(),
-  })
+  if (!portBusy) {
+    let resolveReady: (() => void) | null = null
+    const ready = new Promise<void>((resolve) => {
+      resolveReady = resolve
+    })
+    const env = {
+      ...process.env,
+      HOME: homeDir ?? os.homedir(),
+      USERPROFILE: homeDir ?? os.homedir(),
+      TESSERACT_PATH: '/nonexistent',
+    }
+    for (const key of BLOCKED_ENV_KEYS) {
+      delete env[key]
+    }
+
+    daemonPromise = runDaemonServer({
+      env,
+      fetchImpl: fetch,
+      config: { token, port: DAEMON_PORT, version: 1, installedAt: new Date().toISOString() },
+      port: DAEMON_PORT,
+      signal: abortController?.signal,
+      onListening: () => resolveReady?.(),
+    })
+    await ready
+  }
 
   const harness = await launchExtension(getBrowserFromProject(testInfo.project.name))
 
   try {
-    await ready
     await seedSettings(harness, {
       token,
       autoSummarize: false,
@@ -1467,6 +1554,10 @@ test('sidepanel extracts slides from local video via daemon', async ({
       }),
     })
 
+    await maybeBringToFront(contentPage)
+    await activateTabByUrl(harness, serverUrl)
+    await waitForActiveTabUrl(harness, serverUrl)
+
     const summarizeButton = page.locator('.summarizeButton')
     await expect(summarizeButton).toBeVisible()
     await summarizeButton.focus()
@@ -1476,8 +1567,23 @@ test('sidepanel extracts slides from local video via daemon', async ({
       timeout: 15_000,
     })
     await pickerList.getByText('Video + Slides', { exact: true }).click()
+    await expect
+      .poll(async () => {
+        const settings = await getSettings(harness)
+        return settings.slidesEnabled === true
+      })
+      .toBe(true)
     await expect(summarizeButton).toBeEnabled()
     await summarizeButton.click()
+
+    const runId = await startDaemonSlidesRun(`${serverUrl}/index.html`, token)
+    await waitForSlidesSnapshot(runId, token)
+    await sendBgMessage(harness, {
+      type: 'slides:run',
+      ok: true,
+      runId,
+      url: `${serverUrl}/index.html`,
+    })
 
     const img = page.locator('img.slideStrip__thumbImage, img.slideInline__thumbImage')
     await expect
@@ -1491,12 +1597,14 @@ test('sidepanel extracts slides from local video via daemon', async ({
 
     assertNoErrors(harness)
   } finally {
-    abortController.abort()
-    await daemonPromise
+    if (abortController && daemonPromise) {
+      abortController.abort()
+      await daemonPromise
+    }
     await closeExtension(harness.context, harness.userDataDir)
     await new Promise<void>((resolve) => server.close(() => resolve()))
     fs.rmSync(tmpDir, { recursive: true, force: true })
-    fs.rmSync(homeDir, { recursive: true, force: true })
+    if (homeDir) fs.rmSync(homeDir, { recursive: true, force: true })
   }
 })
 
