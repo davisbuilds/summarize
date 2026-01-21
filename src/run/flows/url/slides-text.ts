@@ -27,56 +27,57 @@ const SLIDE_WINDOW_SECONDS_MIN = 30
 const SLIDE_WINDOW_SECONDS_MAX = 180
 
 const SLIDE_TAG_PATTERN = /^\[[^\]]*slide[^\d\]]*(\d+)[^\]]*\]\s*(.*)$/i
-const SLIDE_LABEL_PATTERN = /^(?:\[)?slide\s+(\d+)(?:\])?(?:\s*[\u00b7:-]\s*.*)?$/i
+const SLIDE_LABEL_PATTERN =
+  /^(?:\[)?slide\s+(\d+)(?:\s*(?:\/|of)\s*\d+)?(?:\])?(?:\s*[\u00b7:-]\s*.*)?$/i
+const TITLE_ONLY_MAX_CHARS = 80
 
 const clampNumber = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 
 const collapseLineWhitespace = (value: string): string => value.replace(/\s+/g, ' ').trim()
 
-const looksLikeTitleLine = (line: string): boolean => {
-  const trimmed = collapseLineWhitespace(line)
-  if (!trimmed) return false
-  if (trimmed.length > 80) return false
-  if (/^[\[\-\u2022*]/.test(trimmed)) return false
-  if (/^slide\s+\d+/i.test(trimmed)) return false
-  if (/^title\s*:/i.test(trimmed)) return false
-  if (/[.!?]\s*$/.test(trimmed)) return false
-  const words = trimmed.split(/\s+/).filter(Boolean)
-  if (words.length > 12) return false
+const deriveHeadlineFromBody = (body: string): string | null => {
+  const cleaned = collapseLineWhitespace(body)
+  if (!cleaned) return null
+  const firstSentence = cleaned.split(/[.!?]/)[0] ?? ''
+  const clause = firstSentence.split(/[,;:\u2013\u2014-]/)[0] ?? firstSentence
+  const words = clause.trim().split(/\s+/).filter(Boolean)
+  if (words.length < 2) return null
+  const title = words.slice(0, Math.min(6, words.length)).join(' ')
+  return title.replace(/[,:;\-]+$/g, '').trim() || null
+}
+
+const isTitleOnlySlideText = (value: string): boolean => {
+  const trimmed = value.trim()
+  if (!trimmed) return true
+  const lines = trimmed.split('\n').map((line) => line.trim()).filter(Boolean)
+  if (lines.length !== 1) return false
+  if (trimmed.length > TITLE_ONLY_MAX_CHARS) return false
+  if (/[.!?]/.test(trimmed)) return false
   return true
 }
 
-const hasSlideLabel = (line: string, index: number, count: number): boolean => {
-  const normalized = collapseLineWhitespace(line).toLowerCase()
-  if (!normalized) return false
-  const target = `slide ${index}`.toLowerCase()
-  if (!normalized.includes(target)) return false
-  if (count <= 0) return true
-  return (
-    normalized.includes(`slide ${index}/${count}`) ||
-    normalized.includes(`slide ${index} / ${count}`) ||
-    normalized.includes(`slide ${index}`)
-  )
-}
-
-const stripQuotes = (value: string): string => value.replace(/[“”"]/g, '')
-
-export const deriveSlideTitle = (text: string): string => {
-  const cleaned = stripQuotes(text)
-    .replace(/\[[^\]]*slide[^\]]*\]/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-  if (!cleaned) return 'Overview'
-  const sentenceMatch = cleaned.match(/[^.!?]+[.!?]+|[^.!?]+$/)
-  const sentence = (sentenceMatch?.[0] ?? cleaned).trim()
-  const words = sentence.split(/\s+/).filter(Boolean)
-  const short = words.slice(0, 8).join(' ').trim()
-  const candidate = short || sentence
-  const maxLength = 72
-  if (candidate.length <= maxLength) return candidate.replace(/[.:;,-]+$/, '')
-  const truncated = candidate.slice(0, maxLength).trimEnd()
-  const trimmed = truncated.replace(/\s+\S*$/, '').trim()
-  return (trimmed || truncated.trim()).replace(/[.:;,-]+$/, '')
+const stripSlideTitleList = (markdown: string): string => {
+  if (!markdown.trim()) return markdown
+  const lines = markdown.split('\n')
+  const out: string[] = []
+  let skipNextTitle = false
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (SLIDE_TAG_PATTERN.test(trimmed) || SLIDE_LABEL_PATTERN.test(trimmed)) {
+      skipNextTitle = true
+      continue
+    }
+    if (skipNextTitle) {
+      if (!trimmed) continue
+      if (isTitleOnlySlideText(trimmed)) {
+        skipNextTitle = false
+        continue
+      }
+      skipNextTitle = false
+    }
+    out.push(line)
+  }
+  return out.join('\n')
 }
 
 export const splitSlideTitleFromText = ({
@@ -93,19 +94,85 @@ export const splitSlideTitleFromText = ({
     .map((line) => line.trim())
     .filter(Boolean)
   if (lines.length === 0) return { title: null, body: '' }
-  const firstLine = lines[0] ?? ''
-  const titleMatch = firstLine.match(/^title\s*:\s*(.+)$/i)
-  if (titleMatch) {
-    const title = collapseLineWhitespace(titleMatch[1] ?? '').trim()
-    const body = lines.slice(1).join('\n').trim()
-    return { title: title || null, body }
+  const cleaned = lines.slice()
+  while (cleaned.length > 0) {
+    const first = cleaned[0] ?? ''
+    if (SLIDE_LABEL_PATTERN.test(first) || SLIDE_TAG_PATTERN.test(first)) {
+      cleaned.shift()
+      continue
+    }
+    break
   }
-  if (!looksLikeTitleLine(firstLine)) {
-    return { title: null, body: trimmed }
+  if (cleaned.length === 0) return { title: null, body: '' }
+  const filtered = cleaned.filter(
+    (line) => !SLIDE_LABEL_PATTERN.test(line) && !SLIDE_TAG_PATTERN.test(line)
+  )
+  if (filtered.length === 0) return { title: null, body: '' }
+
+  const labelPattern = /^(?:title|headline)\s*:\s*(.*)$/i
+  let title: string | null = null
+  let bodyLines = filtered.slice()
+
+  for (let i = 0; i < filtered.length; i += 1) {
+    const line = filtered[i] ?? ''
+    const labelMatch = line.match(labelPattern)
+    if (!labelMatch) continue
+    const labelText = collapseLineWhitespace(labelMatch[1] ?? '').trim()
+    if (labelText) {
+      title = labelText
+      bodyLines = filtered.filter((_, idx) => idx !== i)
+    } else {
+      const fallbackTitle = collapseLineWhitespace(filtered[i + 1] ?? '').trim()
+      if (fallbackTitle) title = fallbackTitle
+      bodyLines = filtered.filter((_, idx) => idx !== i && idx !== i + 1)
+    }
+    break
   }
-  const title = collapseLineWhitespace(firstLine).trim()
-  const body = lines.slice(1).join('\n').trim()
-  return { title: title || null, body }
+
+  if (!title) {
+    for (let i = 0; i < filtered.length; i += 1) {
+      const line = filtered[i] ?? ''
+      const headingMatch = line.match(/^#{1,6}\s+(.+)/)
+      if (!headingMatch) continue
+      const headingText = collapseLineWhitespace(headingMatch[1] ?? '').trim()
+      const headingLabelMatch = headingText.match(labelPattern)
+      if (headingLabelMatch) {
+        const headingLabel = collapseLineWhitespace(headingLabelMatch[1] ?? '').trim()
+        if (headingLabel) {
+          title = headingLabel
+          bodyLines = filtered.filter((_, idx) => idx !== i)
+        } else {
+          const fallbackTitle = collapseLineWhitespace(filtered[i + 1] ?? '').trim()
+          if (fallbackTitle) title = fallbackTitle
+          bodyLines = filtered.filter((_, idx) => idx !== i && idx !== i + 1)
+        }
+      } else {
+        title = headingText || null
+        bodyLines = filtered.filter((_, idx) => idx !== i)
+      }
+      break
+    }
+  }
+
+  if (!title) {
+    const candidates = filtered
+      .map((line, idx) => ({ line, idx }))
+      .filter(({ line }) => isTitleOnlySlideText(line))
+    if (candidates.length === 1) {
+      const pick = candidates[0]
+      title = collapseLineWhitespace(pick?.line ?? '').trim() || null
+      bodyLines = filtered.filter((_, idx) => idx !== pick?.idx)
+    } else if (filtered.length > 1 && isTitleOnlySlideText(filtered[0] ?? '')) {
+      title = collapseLineWhitespace(filtered[0] ?? '').trim() || null
+      bodyLines = filtered.slice(1)
+    }
+  }
+
+  const body = bodyLines.join('\n').trim()
+  if (!title && body) {
+    title = deriveHeadlineFromBody(body)
+  }
+  return { title, body }
 }
 
 export const ensureSlideTitleLine = ({
@@ -126,7 +193,9 @@ export function findSlidesSectionStart(markdown: string): number | null {
   if (!markdown) return null
   const heading = markdown.match(/^#{1,3}\s+Slides\b.*$/im)
   const tag = markdown.match(/^\[slide:\d+\]/im)
-  const label = markdown.match(/^\s*slide\s+\d+(?:\s*[\u00b7:-].*)?$/im)
+  const label = markdown.match(
+    /^\s*slide\s+\d+(?:\s*(?:\/|of)\s*\d+)?(?:\s*[\u00b7:-].*)?$/im
+  )
   const indexes = [heading?.index, tag?.index, label?.index].filter(
     (idx): idx is number => idx != null
   )
@@ -154,15 +223,23 @@ export function parseSlideSummariesFromMarkdown(markdown: string): Map<number, s
   const lines = slice.split('\n')
   let currentIndex: number | null = null
   let buffer: string[] = []
+  let sawBlankAfterTitle = false
+  const hasFutureMarker = (start: number) =>
+    lines.slice(start).some((line) => {
+      const trimmed = line.trim()
+      return SLIDE_TAG_PATTERN.test(trimmed) || SLIDE_LABEL_PATTERN.test(trimmed)
+    })
   const flush = () => {
     if (currentIndex == null) return
     const text = buffer.map((line) => collapseLineWhitespace(line)).join('\n').trim()
     result.set(currentIndex, text)
     currentIndex = null
     buffer = []
+    sawBlankAfterTitle = false
   }
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? ''
     const trimmed = line.trim()
     const heading = trimmed.match(/^#{1,3}\s+\S/)
     if (heading && !trimmed.toLowerCase().startsWith('### slides')) {
@@ -175,6 +252,7 @@ export function parseSlideSummariesFromMarkdown(markdown: string): Map<number, s
       const index = Number.parseInt(match[1] ?? '', 10)
       if (!Number.isFinite(index) || index <= 0) continue
       currentIndex = index
+      sawBlankAfterTitle = false
       const rest = (match[2] ?? '').trim()
       if (rest) buffer.push(rest)
       continue
@@ -185,10 +263,27 @@ export function parseSlideSummariesFromMarkdown(markdown: string): Map<number, s
       const index = Number.parseInt(label[1] ?? '', 10)
       if (!Number.isFinite(index) || index <= 0) continue
       currentIndex = index
+      sawBlankAfterTitle = false
       continue
     }
     if (currentIndex == null) continue
-    if (!trimmed) continue
+    if (!trimmed) {
+      if (buffer.length === 1 && isTitleOnlySlideText(buffer[0] ?? '')) {
+        sawBlankAfterTitle = true
+      }
+      continue
+    }
+    if (
+      sawBlankAfterTitle &&
+      buffer.length === 1 &&
+      isTitleOnlySlideText(buffer[0] ?? '') &&
+      !isTitleOnlySlideText(trimmed) &&
+      !hasFutureMarker(i)
+    ) {
+      flush()
+      break
+    }
+    sawBlankAfterTitle = false
     buffer.push(trimmed)
   }
   flush()
@@ -207,6 +302,33 @@ export function extractSlideMarkers(markdown: string): number[] {
     match = regex.exec(markdown)
   }
   return indexes
+}
+
+export function normalizeSummarySlideHeadings(markdown: string): string {
+  if (!markdown.trim()) return markdown
+  if (!/\[slide:\d+\]/i.test(markdown)) return markdown
+  const deleteMarker = '__SUMMARIZE_DELETE__'
+  const lines = markdown.split('\n')
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? ''
+    if (!SLIDE_TAG_PATTERN.test(line.trim())) continue
+    for (let k = i + 1; k < lines.length; k += 1) {
+      const candidate = lines[k] ?? ''
+      const trimmed = candidate.trim()
+      if (!trimmed) continue
+      if (SLIDE_LABEL_PATTERN.test(trimmed)) {
+        lines[k] = deleteMarker
+        continue
+      }
+      const labelMatch = trimmed.match(/^(?:title|headline)\s*:\s*(.*)$/i)
+      if (labelMatch) {
+        const labelText = collapseLineWhitespace(labelMatch[1] ?? '').trim()
+        lines[k] = labelText ? `## ${labelText}` : deleteMarker
+      }
+      break
+    }
+  }
+  return lines.filter((line) => line !== deleteMarker).join('\n')
 }
 
 function splitMarkdownParagraphs(markdown: string): string[] {
@@ -235,7 +357,9 @@ function hasSlideLabelLines(markdown: string): boolean {
 
 function findFirstSlideTokenIndex(markdown: string): number | null {
   const tag = markdown.match(/\[slide:\d+\]/i)
-  const label = markdown.match(/^\s*slide\s+\d+(?:\s*[\u00b7:-].*)?$/im)
+  const label = markdown.match(
+    /^\s*slide\s+\d+(?:\s*(?:\/|of)\s*\d+)?(?:\s*[\u00b7:-].*)?$/im
+  )
   const indexes = [tag?.index, label?.index].filter((idx): idx is number => idx != null)
   if (indexes.length === 0) return null
   return Math.min(...indexes)
@@ -299,13 +423,17 @@ export function coerceSummaryWithSlides({
   const { summary, slidesSection } = splitSummaryFromSlides(markdown)
   const intro = pickIntroParagraph(summary)
   const slideSummaries = slidesSection ? parseSlideSummariesFromMarkdown(markdown) : new Map()
+  const titleOnlySlideSummaries =
+    slideSummaries.size > 0 &&
+    Array.from(slideSummaries.values()).every((text) => isTitleOnlySlideText(text))
+  const distributionMarkdown = titleOnlySlideSummaries ? stripSlideTitleList(markdown) : markdown
   const fallbackSummaries = buildSlideTextFallback({
     slides: ordered,
     transcriptTimedText,
     lengthArg,
   })
 
-  if (slideSummaries.size > 0) {
+  if (slideSummaries.size > 0 && !titleOnlySlideSummaries) {
     const parts: string[] = []
     if (intro) parts.push(intro)
     for (const slide of ordered) {
@@ -316,7 +444,7 @@ export function coerceSummaryWithSlides({
     return parts.join('\n\n')
   }
 
-  const paragraphs = splitMarkdownParagraphs(markdown)
+  const paragraphs = splitMarkdownParagraphs(distributionMarkdown)
   if (paragraphs.length === 0) return markdown
   const introParagraph = intro || paragraphs[0] || ''
   const introIndex = paragraphs.indexOf(introParagraph)

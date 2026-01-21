@@ -34,6 +34,8 @@
 - Slides: ensure slide summary segments start with a title line when missing.
 - Slides: progress updates during yt-dlp downloads and OSC progress mirrors slide extraction.
 - Slides: reuse the media cache for downloaded videos (even with `--no-cache`).
+- Slides: clear slide progress line before the finish summary to avoid stray `Slides x/y` output.
+- Slides: parse `Slide N/Total` labels and stabilize title/body extraction.
 - CLI: `--no-cache` now bypasses summary caching only; transcript/media caches still apply.
 - Chrome Side Panel chat: keep auto-scroll pinned while streaming when you’re already at the bottom.
 - Chrome Side Panel: scope streams/state per window so other windows don’t wipe active summaries.

@@ -82,7 +82,7 @@ export function buildLinkSummaryPrompt({
   const contextLines: string[] = [`Source URL: ${url}`]
 
   if (title) {
-    contextLines.push(`Title: ${title}`)
+    contextLines.push(`Page name: ${title}`)
   }
 
   if (siteName) {
@@ -114,7 +114,10 @@ export function buildLinkSummaryPrompt({
       ? effectiveSummaryLength
       : pickSummaryLengthForCharacters(effectiveSummaryLength.maxCharacters)
   const directive = resolveSummaryLengthSpec(preset)
-  const formattingLine = directive.formatting
+  const formattingLine =
+    slides && slides.count > 0
+      ? 'Use the slide format below. Do not add extra sections or list items outside the intro and slides.'
+      : directive.formatting
   const presetLengthLine =
     typeof effectiveSummaryLength === 'string' ? formatPresetLengthGuidance(preset) : ''
   const needsHeadings =
@@ -124,9 +127,7 @@ export function buildLinkSummaryPrompt({
       effectiveSummaryLength.maxCharacters >= HEADING_LENGTH_CHAR_THRESHOLD)
   const headingInstruction =
     slides && slides.count > 0
-      ? needsHeadings
-        ? 'Use Markdown headings with the "### " prefix to break sections when helpful. Do not create a dedicated Slides section or list.'
-        : 'Do not create a dedicated Slides section or list.'
+      ? 'Do not create a dedicated Slides section or list.'
       : needsHeadings
         ? 'Use Markdown headings with the "### " prefix to break sections. Include at least 3 headings and start with a heading. Do not use bold for headings.'
         : ''
@@ -173,25 +174,25 @@ export function buildLinkSummaryPrompt({
   const slideTemplate =
     slides && slides.count > 0
       ? [
-          'Output template (copy and fill; keep markers on their own lines):',
+          'Slide format example (follow this pattern; markers on their own lines):',
           'Intro paragraph.',
-          ...Array.from(
-            { length: slides.count },
-            (_, index) => `[slide:${index + 1}]\nText for this segment.`
-          ),
+          '[slide:1]',
+          '## Example headline',
+          'Example sentence.',
+          '[slide:2]',
+          '## Example headline',
+          'Example sentence.',
         ].join('\n')
       : ''
   const slideInstruction =
     slides && slides.count > 0
       ? [
-          'Start with a short intro paragraph (1-3 sentences) before the first slide tag.',
-          'Write a continuous narrative that covers the whole video; do not switch to a bullet list.',
-          'Slides are provided as transcript excerpts tied to time spans between adjacent slides.',
-          'Formatting is strict: insert each slide marker on its own line where that slide should appear.',
-          `Required markers (use each exactly once, in order): ${slideMarkers}`,
-          'Use the exact lowercase tag format [slide:N]. Do not add a "### Slides" heading.',
           slideTemplate,
-          'Do not add a separate Slides section or list.',
+          'Repeat the 3-line slide block for every marker below, in order.',
+          'Every slide must include a headline line that starts with "## ".',
+          'If there is no obvious title, create a short 2-6 word headline from the slide content.',
+          'Never output "Title:" or "Slide 1/10".',
+          `Required markers (use each exactly once, in order): ${slideMarkers}`,
         ].join('\n')
       : ''
   const listGuidanceLine =
@@ -223,6 +224,7 @@ export function buildLinkSummaryPrompt({
     quoteGuidanceLine,
     'Base everything strictly on the provided content and never invent details.',
     'Final check: remove any sponsor/ad references or mentions of skipping/ignoring content. Ensure excerpts (if any) are italicized and use only straight quotes.',
+    'Final check for slides: every [slide:N] must be immediately followed by a line that starts with "## ". Remove any "Title:" or "Slide" label lines.',
     timestampInstruction,
     shareGuidance,
     slideInstruction,

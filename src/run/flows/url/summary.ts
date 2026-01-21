@@ -34,7 +34,11 @@ import { isRichTty, markdownRenderWidth, supportsColor } from '../../terminal.js
 import type { ModelAttempt } from '../../types.js'
 import type { UrlExtractionUi } from './extract.js'
 import type { SlidesTerminalOutput } from './slides-output.js'
-import { coerceSummaryWithSlides, interleaveSlidesIntoTranscript } from './slides-text.js'
+import {
+  coerceSummaryWithSlides,
+  interleaveSlidesIntoTranscript,
+  normalizeSummarySlideHeadings,
+} from './slides-text.js'
 import type { UrlFlowContext } from './types.js'
 
 type SlidesResult = Awaited<
@@ -308,6 +312,7 @@ async function outputSummaryFromExtractedContent({
     io.stdout.write(`${JSON.stringify(payload, null, 2)}\n`)
     if (flags.metricsEnabled && finishReport) {
       const costUsd = await hooks.estimateCostUsd()
+      hooks.clearProgressForStdout()
       writeFinishLine({
         stderr: io.stderr,
         env: io.envForRun,
@@ -560,6 +565,7 @@ export async function outputExtractedUrl({
   const report = flags.shouldComputeReport ? await hooks.buildReport() : null
   if (flags.metricsEnabled && report) {
     const costUsd = await hooks.estimateCostUsd()
+    hooks.clearProgressForStdout()
     writeFinishLine({
       stderr: io.stderr,
       env: io.envForRun,
@@ -872,6 +878,8 @@ export async function summarizeExtractedUrl({
   }
 
   const { summary, summaryAlreadyPrinted, modelMeta, maxOutputTokensForCall } = summaryResult
+  const normalizedSummary =
+    slides && slides.slides.length > 0 ? normalizeSummarySlideHeadings(summary) : summary
 
   if (flags.json) {
     const finishReport = flags.shouldComputeReport ? await hooks.buildReport() : null
@@ -912,7 +920,7 @@ export async function summarizeExtractedUrl({
         strategy: 'single' as const,
       },
       metrics: flags.metricsEnabled ? finishReport : null,
-      summary,
+      summary: normalizedSummary,
     }
     io.stdout.write(`${JSON.stringify(payload, null, 2)}\n`)
     if (flags.metricsEnabled && finishReport) {
@@ -943,7 +951,7 @@ export async function summarizeExtractedUrl({
       const summaryForSlides =
         slides && slides.slides.length > 0
           ? coerceSummaryWithSlides({
-              markdown: summary,
+              markdown: normalizedSummary,
               slides: slides.slides.map((slide) => ({
                 index: slide.index,
                 timestamp: slide.timestamp,
@@ -951,20 +959,20 @@ export async function summarizeExtractedUrl({
               transcriptTimedText: extracted.transcriptTimedText ?? null,
               lengthArg: flags.lengthArg,
             })
-          : summary
+          : normalizedSummary
       await slidesOutput.renderFromText(summaryForSlides)
     }
   } else if (!summaryAlreadyPrinted) {
     hooks.clearProgressForStdout()
     const rendered =
       !flags.plain && isRichTty(io.stdout)
-        ? renderMarkdownAnsi(prepareMarkdownForTerminal(summary), {
+        ? renderMarkdownAnsi(prepareMarkdownForTerminal(normalizedSummary), {
             width: markdownRenderWidth(io.stdout, io.env),
             wrap: true,
             color: supportsColor(io.stdout, io.envForRun),
             hyperlinks: true,
           })
-        : summary
+        : normalizedSummary
 
     if (!flags.plain && isRichTty(io.stdout)) {
       io.stdout.write(`\n${rendered.replace(/^\n+/, '')}`)

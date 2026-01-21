@@ -126,9 +126,9 @@ describe('slides text helpers', () => {
     expect(coerced).toContain('This segment explains the setup.')
   })
 
-  it('detects short headline lines as slide titles', () => {
+  it('detects markdown heading lines as slide titles', () => {
     const parsed = splitSlideTitleFromText({
-      text: 'Graphene breakthroughs\nGraphene is strong and conductive.',
+      text: '## Graphene breakthroughs\nGraphene is strong and conductive.',
       slideIndex: 1,
       total: 3,
     })
@@ -140,7 +140,77 @@ describe('slides text helpers', () => {
       slideIndex: 1,
       total: 3,
     })
-    expect(sentence.title).toBeNull()
+    expect(sentence.title).toBe('Graphene is strong and conductive')
+  })
+
+  it('treats Title labels as slide titles', () => {
+    const parsed = splitSlideTitleFromText({
+      text: 'Title: Graphene breakthroughs\nGraphene is strong and conductive.',
+      slideIndex: 1,
+      total: 3,
+    })
+    expect(parsed.title).toBe('Graphene breakthroughs')
+    expect(parsed.body).toBe('Graphene is strong and conductive.')
+  })
+
+  it('treats plain title lines as slide titles when followed by body', () => {
+    const parsed = splitSlideTitleFromText({
+      text: 'Podcast Introduction\nThe hosts welcome each other.',
+      slideIndex: 1,
+      total: 3,
+    })
+    expect(parsed.title).toBe('Podcast Introduction')
+    expect(parsed.body).toBe('The hosts welcome each other.')
+  })
+
+  it('ignores leading slide labels before titles', () => {
+    const parsed = splitSlideTitleFromText({
+      text: 'Slide 1/10 · 0:02\nTitle: Podcast Introduction\nThe hosts welcome each other.',
+      slideIndex: 1,
+      total: 3,
+    })
+    expect(parsed.title).toBe('Podcast Introduction')
+    expect(parsed.body).toBe('The hosts welcome each other.')
+  })
+
+  it('lifts later heading lines as titles', () => {
+    const parsed = splitSlideTitleFromText({
+      text: 'First paragraph line.\n## Late title\nSecond paragraph line.',
+      slideIndex: 1,
+      total: 3,
+    })
+    expect(parsed.title).toBe('Late title')
+    expect(parsed.body).toBe('First paragraph line.\nSecond paragraph line.')
+  })
+
+  it('uses the next line when a Title label is empty', () => {
+    const parsed = splitSlideTitleFromText({
+      text: 'Title:\nGraphene breakthroughs\nGraphene is strong and conductive.',
+      slideIndex: 1,
+      total: 3,
+    })
+    expect(parsed.title).toBe('Graphene breakthroughs')
+    expect(parsed.body).toBe('Graphene is strong and conductive.')
+  })
+
+  it('strips Title labels from markdown headings', () => {
+    const parsed = splitSlideTitleFromText({
+      text: '## Title: Graphene breakthroughs\nGraphene is strong and conductive.',
+      slideIndex: 1,
+      total: 3,
+    })
+    expect(parsed.title).toBe('Graphene breakthroughs')
+    expect(parsed.body).toBe('Graphene is strong and conductive.')
+  })
+
+  it('uses the next line when a heading Title label is empty', () => {
+    const parsed = splitSlideTitleFromText({
+      text: '## Title:\nGraphene breakthroughs\nGraphene is strong and conductive.',
+      slideIndex: 1,
+      total: 3,
+    })
+    expect(parsed.title).toBe('Graphene breakthroughs')
+    expect(parsed.body).toBe('Graphene is strong and conductive.')
   })
 
   it('coerces summaries with markers and missing slides', () => {
@@ -188,6 +258,34 @@ describe('slides text helpers', () => {
     expect(coerced).toContain('[slide:1]')
     expect(coerced).not.toContain('FALLBACK SEGMENT')
     expect(coerced).toContain('Covered segment.')
+  })
+
+  it('redistributes text when slides only have titles', () => {
+    const slides = [
+      { index: 1, timestamp: 10 },
+      { index: 2, timestamp: 20 },
+    ]
+    const markdown = [
+      'Intro paragraph.',
+      '',
+      '[slide:1]',
+      'Welcome and Updates',
+      '',
+      '[slide:2]',
+      'Security Nightmare',
+      '',
+      'First body paragraph.',
+      '',
+      'Second body paragraph.',
+    ].join('\n')
+    const coerced = coerceSummaryWithSlides({
+      markdown,
+      slides,
+      transcriptTimedText: null,
+      lengthArg: { kind: 'preset', preset: 'short' },
+    })
+    expect(coerced).toContain('[slide:1]\nFirst body paragraph.')
+    expect(coerced).toContain('[slide:2]\nSecond body paragraph.')
   })
 
   it('parses transcript timed text and sorts by timestamp', () => {

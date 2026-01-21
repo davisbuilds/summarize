@@ -239,6 +239,9 @@ export function createSlidesTerminalOutput({
     const shortTitle =
       cleanTitle.length > titleMax ? `${cleanTitle.slice(0, titleMax - 3).trimEnd()}...` : cleanTitle
     const titleLine = shortTitle ? labelTheme.heading(shortTitle) : ''
+    const headerLine = shortTitle
+      ? `${titleLine}${timeLink ? ` ${labelTheme.dim(`· ${timeLink}`)}` : ''}`
+      : label
 
     clearProgressForStdout()
     io.stdout.write('\n')
@@ -254,9 +257,9 @@ export function createSlidesTerminalOutput({
           .catch(() => false)
         resolvedPath = exists ? imagePath : `${imagePath} (missing)`
       }
-      io.stdout.write(`${titleLine ? `${titleLine}\n` : ''}${label}\n${resolvedPath}\n\n`)
+      io.stdout.write(`${headerLine}\n${resolvedPath}\n\n`)
     } else {
-      io.stdout.write(`${titleLine ? `${titleLine}\n` : ''}${label}\n\n`)
+      io.stdout.write(`${headerLine}\n\n`)
     }
     restoreProgressAfterStdout?.()
 
@@ -360,7 +363,8 @@ export function createSlidesSummaryStreamHandler({
   let visible = ''
   let pendingSlide: { index: number; buffer: string } | null = null
   const slideTagRegex = /\[[^\]]*slide[^\d\]]*(\d+)[^\]]*\]/i
-  const slideLabelRegex = /(^|\n)[\t ]*slide\s+(\d+)(?:\s*[\u00b7:-].*)?(?=\n|$)/i
+  const slideLabelRegex =
+    /(^|\n)[\t ]*slide\s+(\d+)(?:\s*(?:\/|of)\s*\d+)?(?:\s*[\u00b7:-].*)?(?=\n|$)/i
   const slideStripRegex = /\[[^\]]*slide[^\]]*\]/gi
 
   const handleMarkdownChunk = (nextVisible: string, prevVisible: string) => {
@@ -392,10 +396,15 @@ export function createSlidesSummaryStreamHandler({
     handleMarkdownChunk(visible, prevVisible)
   }
 
-  const shouldResolveTitle = (text: string, force: boolean) => {
-    if (!text.trim()) return false
-    if (force) return true
-    return text.includes('\n')
+  const pushVisibleLines = (segment: string) => {
+    if (!segment) return
+    const parts = segment.split('\n')
+    for (let i = 0; i < parts.length; i += 1) {
+      const line = parts[i] ?? ''
+      const suffix = i < parts.length - 1 ? '\n' : ''
+      if (!line && !suffix) continue
+      pushVisible(`${line}${suffix}`)
+    }
   }
 
   const flushPendingSlide = async (force: boolean) => {
@@ -409,10 +418,14 @@ export function createSlidesSummaryStreamHandler({
       }
       return
     }
-    if (!shouldResolveTitle(text, force)) return
+
     const index = pendingSlide.index
     const meta = getSlideMeta?.(index)
     const total = meta?.total ?? getSlideIndexOrder().length
+    const newlineIndex = text.indexOf('\n')
+    const shouldResolve = force || newlineIndex !== -1 || text.length >= 160
+    if (!shouldResolve) return
+
     const parsed = splitSlideTitleFromText({
       text,
       slideIndex: index,
@@ -421,11 +434,11 @@ export function createSlidesSummaryStreamHandler({
     if (parsed.title && !parsed.body && !force) {
       return
     }
-    const body = parsed.body || text
     const title = parsed.title ?? null
+    const body = parsed.body
     pendingSlide = null
     await renderSlideBlock(index, title)
-    if (body.trim()) pushVisible(body)
+    if (body.trim()) pushVisibleLines(body)
   }
 
   const appendVisible = async (segment: string) => {
@@ -505,8 +518,12 @@ export function createSlidesSummaryStreamHandler({
       const rawTag = buffered.slice(matchIndex, matchIndex + matchLength)
       const before = buffered.slice(0, matchIndex)
       const after = buffered.slice(matchIndex + matchLength)
-      if (pendingSlide) await flushPendingSlide(true)
-      await appendVisible(before)
+      if (pendingSlide) {
+        await appendVisible(before)
+        await flushPendingSlide(true)
+      } else {
+        await appendVisible(before)
+      }
       buffered = after
       let index: number | null = null
       if (nextMatch.kind === 'fallback') {

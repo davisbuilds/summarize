@@ -275,6 +275,7 @@ let slidesOcrAvailable = false
 let slidesLayoutValue: SlidesLayout = defaultSettings.slidesLayout
 let slideDescriptions = new Map<number, string>()
 let slideSummaryByIndex = new Map<number, string>()
+let slideTitleByIndex = new Map<number, string>()
 let slidesContextRequestId = 0
 let slidesContextPending = false
 let slidesContextUrl: string | null = null
@@ -997,6 +998,7 @@ function resetSummaryView({
   slidesTextMode = 'transcript'
   slideDescriptions = new Map()
   slideSummaryByIndex = new Map()
+  slideTitleByIndex = new Map()
   stopSlidesStream()
   refreshSummarizeControl()
   if (!preserveChat) {
@@ -1115,10 +1117,38 @@ window.addEventListener('unhandledrejection', (event) => {
   setPhase('error', { error: message })
 })
 
+const SLIDE_LABEL_PATTERN =
+  /^(?:\[)?slide\s+(\d+)(?:\s*(?:\/|of)\s*\d+)?(?:\])?(?:\s*[\u00b7:-]\s*.*)?$/i
+const SLIDE_TAG_PATTERN = /^\[slide:(\d+)\]\s*(.*)$/i
+
+function findSlidesSectionStart(markdown: string): number | null {
+  if (!markdown) return null
+  const heading = markdown.match(/^#{1,3}\s+Slides\b.*$/im)
+  const tag = markdown.match(/^\[slide:\d+\]/im)
+  const label = markdown.match(
+    /^\s*slide\s+\d+(?:\s*(?:\/|of)\s*\d+)?(?:\s*[\u00b7:-].*)?$/im
+  )
+  const indexes = [heading?.index, tag?.index, label?.index].filter(
+    (idx): idx is number => idx != null
+  )
+  if (indexes.length === 0) return null
+  return Math.min(...indexes)
+}
+
+function deriveHeadlineFromBody(body: string): string | null {
+  const cleaned = body.trim().replace(/\s+/g, ' ')
+  if (!cleaned) return null
+  const firstSentence = cleaned.split(/[.!?]/)[0] ?? ''
+  const clause = firstSentence.split(/[,;:\u2013\u2014-]/)[0] ?? firstSentence
+  const words = clause.trim().split(/\s+/).filter(Boolean)
+  if (words.length < 2) return null
+  const title = words.slice(0, Math.min(6, words.length)).join(' ')
+  return title.replace(/[,:;\-]+$/g, '').trim() || null
+}
+
 function splitSlidesMarkdown(markdown: string): { summary: string; slides: string | null } {
-  const match = markdown.match(/^###\s+Slides\b.*$/im)
-  if (!match || match.index == null) return { summary: markdown.trim(), slides: null }
-  const startAt = match.index
+  const startAt = findSlidesSectionStart(markdown)
+  if (startAt == null) return { summary: markdown.trim(), slides: null }
   const summary = markdown.slice(0, startAt).trim()
   const slides = markdown.slice(startAt).trim()
   return { summary, slides: slides.length > 0 ? slides : null }
@@ -1165,62 +1195,158 @@ function renderMarkdown(markdown: string) {
 }
 
 function updateSlideSummaryFromMarkdown(markdown: string) {
-  slideSummaryByIndex = parseSlideSummariesFromMarkdown(markdown)
+  const parsed = parseSlideSummariesFromMarkdown(markdown)
+  slideSummaryByIndex = parsed.summaries
+  slideTitleByIndex = parsed.titles
   rebuildSlideDescriptions()
   queueSlidesRender()
 }
 
-function parseSlideSummariesFromMarkdown(markdown: string): Map<number, string> {
-  const result = new Map<number, string>()
-  if (!markdown.trim()) return result
-  const slidesHeadingMatch = markdown.match(/^###\s+Slides\b.*$/im)
-  if (slidesHeadingMatch?.index == null) return result
-  const startAt = slidesHeadingMatch.index
+function parseSlideSummariesFromMarkdown(markdown: string): {
+  summaries: Map<number, string>
+  titles: Map<number, string>
+} {
+  const summaries = new Map<number, string>()
+  const titles = new Map<number, string>()
+  if (!markdown.trim()) return { summaries, titles }
+  const startAt = findSlidesSectionStart(markdown)
+  if (startAt == null) return { summaries, titles }
   const slice = markdown.slice(startAt)
-  const slideLabelPattern = /^(?:\[)?slide\s+(\d+)(?:\])?(?:\s*[\u00b7:-]\s*.*)?$/i
+  const isTitleCandidate = (line: string) => line.length <= 80 && !/[.!?]/.test(line)
 
   const lines = slice.split('\n')
   let currentIndex: number | null = null
   let buffer: string[] = []
+  let sawBlankAfterTitle = false
+  const hasFutureMarker = (start: number) =>
+    lines.slice(start).some((line) => {
+      const trimmed = line.trim()
+      return SLIDE_TAG_PATTERN.test(trimmed) || SLIDE_LABEL_PATTERN.test(trimmed)
+    })
   const flush = () => {
     if (currentIndex == null) return
-    const text = buffer.join('\n').trim().replace(/\s+/g, ' ')
-    if (text) result.set(currentIndex, text)
+    const raw = buffer.join('\n').trim()
+    if (raw) {
+      const lines = raw
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .filter((line) => !SLIDE_LABEL_PATTERN.test(line) && !/^\[slide:\d+\]/i.test(line))
+      if (lines.length === 0) {
+        currentIndex = null
+        buffer = []
+        return
+      }
+      let title: string | null = null
+      let titleIndex: number | null = null
+      const titleLineIndex = lines.findIndex((line) =>
+        /^(?:title|headline)\s*:\s*/i.test(line)
+      )
+      if (titleLineIndex >= 0) {
+        const labelMatch = lines[titleLineIndex]?.match(/^(?:title|headline)\s*:\s*(.*)$/i)
+        title = (labelMatch?.[1] ?? '').trim() || null
+        titleIndex = titleLineIndex
+      }
+      if (!title) {
+        const headingIndex = lines.findIndex((line) => /^#{1,6}\s+/.test(line))
+        if (headingIndex >= 0) {
+          const headingMatch = lines[headingIndex]?.match(/^#{1,6}\s+(.+)/)
+          const headingText = (headingMatch?.[1] ?? '').trim()
+          const headingLabelMatch = headingText.match(/^(?:title|headline)\s*:\s*(.*)$/i)
+          if (headingLabelMatch) {
+            const headingLabel = (headingLabelMatch[1] ?? '').trim()
+            if (headingLabel) {
+              title = headingLabel
+            } else {
+              const fallbackTitle = (lines[headingIndex + 1] ?? '').trim()
+              if (fallbackTitle) title = fallbackTitle
+            }
+          } else {
+            title = headingText || null
+          }
+          titleIndex = headingIndex
+        }
+      }
+      if (!title && lines.length > 1) {
+        const candidates = lines
+          .map((line, idx) => ({ line, idx }))
+          .filter(({ line }) => isTitleCandidate(line))
+        if (candidates.length === 1) {
+          title = candidates[0]?.line ?? null
+          titleIndex = candidates[0]?.idx ?? null
+        } else if (isTitleCandidate(lines[0] ?? '')) {
+          title = lines[0] ?? null
+          titleIndex = 0
+        }
+      }
+      const bodyLines = lines.filter((line, idx) => {
+        if (titleIndex != null && idx === titleIndex) return false
+        if (/^(?:title|headline)\s*:/i.test(line)) return false
+        if (/^#{1,6}\s+/.test(line)) return false
+        return true
+      })
+      const body = bodyLines.join(' ').trim().replace(/\s+/g, ' ')
+      if (!title && body) {
+        title = deriveHeadlineFromBody(body)
+      }
+      if (body) summaries.set(currentIndex, body)
+      if (title) titles.set(currentIndex, title)
+    }
     currentIndex = null
     buffer = []
+    sawBlankAfterTitle = false
   }
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? ''
     const trimmed = line.trim()
     const heading = trimmed.match(/^#{1,3}\s+\S/)
     if (heading && !trimmed.toLowerCase().startsWith('### slides')) {
       flush()
       break
     }
-    const match = trimmed.match(/^\[slide:(\d+)\]\s*(.*)$/i)
+    const match = trimmed.match(SLIDE_TAG_PATTERN)
     if (match) {
       flush()
       const index = Number.parseInt(match[1] ?? '', 10)
       if (!Number.isFinite(index) || index <= 0) continue
       currentIndex = index
+      sawBlankAfterTitle = false
       const rest = (match[2] ?? '').trim()
       if (rest) buffer.push(rest)
       continue
     }
-    const labelMatch = trimmed.match(slideLabelPattern)
+    const labelMatch = trimmed.match(SLIDE_LABEL_PATTERN)
     if (labelMatch) {
       flush()
       const index = Number.parseInt(labelMatch[1] ?? '', 10)
       if (!Number.isFinite(index) || index <= 0) continue
       currentIndex = index
+      sawBlankAfterTitle = false
       continue
     }
     if (currentIndex == null) continue
-    if (!trimmed) continue
+    if (!trimmed) {
+      if (buffer.length === 1 && isTitleCandidate(buffer[0] ?? '')) {
+        sawBlankAfterTitle = true
+      }
+      continue
+    }
+    if (
+      sawBlankAfterTitle &&
+      buffer.length === 1 &&
+      isTitleCandidate(buffer[0] ?? '') &&
+      !isTitleCandidate(trimmed) &&
+      !hasFutureMarker(i)
+    ) {
+      flush()
+      break
+    }
+    sawBlankAfterTitle = false
     buffer.push(trimmed)
   }
   flush()
-  return result
+  return { summaries, titles }
 }
 
 function setSlidesBusy(next: boolean) {
@@ -1550,9 +1676,25 @@ function updateSlideThumb(
   img.dataset.slideImageUrl = ''
 }
 
-function updateSlideMeta(el: HTMLElement, index: number, timestamp: number | null | undefined) {
+function updateSlideMeta(
+  el: HTMLElement,
+  index: number,
+  timestamp: number | null | undefined,
+  title?: string | null,
+  total?: number | null
+) {
   const formatted = formatSlideTimestamp(timestamp)
-  el.textContent = formatted ? `Slide ${index} · ${formatted}` : `Slide ${index}`
+  const totalCount = typeof total === 'number' && total > 0 ? total : null
+  const slideLabel = totalCount ? `Slide ${index}/${totalCount}` : `Slide ${index}`
+  if (title) {
+    el.textContent = formatted ? `${title} · ${formatted}` : title
+    return
+  }
+  if (formatted) {
+    el.textContent = `${slideLabel} · ${formatted}`
+    return
+  }
+  el.textContent = slideLabel
 }
 
 function bindSlideSeek(el: HTMLElement, timestamp: number | null | undefined) {
@@ -1778,7 +1920,7 @@ function renderSlideStrip(container: HTMLElement) {
     if (!thumb || !img || !meta) continue
 
     updateSlideThumb(img, thumb, slide.imageUrl)
-    updateSlideMeta(meta, idx, slide.timestamp)
+    updateSlideMeta(meta, idx, slide.timestamp, slideTitleByIndex.get(idx) ?? null, slides.length)
 
     const existingText = button.querySelector<HTMLDivElement>('.slideStrip__text')
     if (slidesExpanded) {
@@ -1895,7 +2037,7 @@ function renderSlideGallery(container: HTMLElement) {
     if (!media || !img || !thumb || !meta || !text) continue
 
     updateSlideThumb(img, thumb, slide.imageUrl)
-    updateSlideMeta(meta, idx, slide.timestamp)
+    updateSlideMeta(meta, idx, slide.timestamp, slideTitleByIndex.get(idx) ?? null, slides.length)
     text.textContent = slideDescriptions.get(idx) ?? ''
 
     bindSlideSeek(item, slide.timestamp)
@@ -1922,6 +2064,7 @@ function renderInlineSlides(container: HTMLElement, opts?: { fallback?: boolean 
     return
   }
   const slidesByIndex = new Map(panelState.slides.slides.map((slide) => [slide.index, slide]))
+  const slideTotal = panelState.slides.slides.length || slidesByIndex.size
   const placeholders = Array.from(container.querySelectorAll('span.slideInline'))
   let replacedCount = 0
   for (const placeholder of placeholders) {
@@ -1942,7 +2085,13 @@ function renderInlineSlides(container: HTMLElement, opts?: { fallback?: boolean 
     updateSlideThumb(img, thumb, slide.imageUrl)
     const caption = document.createElement('div')
     caption.className = 'slideCaption'
-    updateSlideMeta(caption, index, slide.timestamp)
+    updateSlideMeta(
+      caption,
+      index,
+      slide.timestamp,
+      slideTitleByIndex.get(index) ?? null,
+      slideTotal
+    )
     thumb.appendChild(img)
     button.appendChild(thumb)
     button.appendChild(caption)

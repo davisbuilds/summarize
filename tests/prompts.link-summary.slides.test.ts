@@ -19,12 +19,13 @@ describe('buildLinkSummaryPrompt (slides)', () => {
       shares: [],
     })
 
-    expect(prompt).toContain('Start with a short intro paragraph')
-    expect(prompt).toContain('Formatting is strict: insert each slide marker')
+    expect(prompt).toContain('Slide format example (follow this pattern; markers on their own lines):')
     expect(prompt).toContain('Required markers (use each exactly once, in order)')
-    expect(prompt).toContain('Output template (copy and fill; keep markers on their own lines)')
-    expect(prompt).not.toContain('Title: Headline')
-    expect(prompt).toContain('Do not add a separate Slides section or list')
+    expect(prompt).toContain('Repeat the 3-line slide block for every marker below, in order.')
+    expect(prompt).toContain('Every slide must include a headline line that starts with "## ".')
+    expect(prompt).toContain('If there is no obvious title, create a short 2-6 word headline')
+    expect(prompt).toContain('Never output "Title:" or "Slide 1/10".')
+    expect(prompt).toContain('Do not create a dedicated Slides section or list')
     expect(prompt).not.toContain('Include at least 3 headings')
   })
 })

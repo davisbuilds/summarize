@@ -26,15 +26,29 @@ Other section
 Intro paragraph.
 
 ### Slides
-Slide 1 \u00b7 0:01
+Slide 1/10 \u00b7 0:01
 First slide text.
 
-Slide 2 - 1:05
+Slide 2 of 10 - 1:05
 Second slide text.
 `
     const map = parseSlideSummariesFromMarkdown(markdown)
     expect(map.get(1)).toBe('First slide text.')
     expect(map.get(2)).toBe('Second slide text.')
+  })
+
+  it('parses slide markers without a Slides heading', () => {
+    const markdown = `
+Intro paragraph.
+
+[slide:1] First summary line.
+More detail.
+
+[slide:3] Third summary.
+`
+    const map = parseSlideSummariesFromMarkdown(markdown)
+    expect(map.get(1)).toBe('First summary line.\nMore detail.')
+    expect(map.get(3)).toBe('Third summary.')
   })
 
   it('keeps empty slide markers', () => {
