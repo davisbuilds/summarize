@@ -2766,6 +2766,10 @@ test.describe('youtube e2e', () => {
           .map(([index, text]) => ({ index, text: normalizeWhitespace(text) }))
           .sort((a, b) => a.index - b.index)
 
+        for (const slide of panelSlides) {
+          expect(slide.text.length).toBeGreaterThan(0)
+        }
+
         const panelIndexes = panelSlides.map((entry) => entry.index)
         const expectedIndexes = expectedSlides.map((entry) => entry.index)
         expect(panelIndexes).toEqual(expectedIndexes)
