@@ -5,6 +5,7 @@ import {
   parseArtifact,
   upsertArtifact,
 } from "./artifacts-store";
+import { withNativeInputArmedTab } from "./native-input-guard";
 import { executeNavigateTool } from "./navigate";
 import { listSkills } from "./skills-store";
 import { buildUserScriptsGuidance, getUserScriptsStatus } from "./userscripts";
@@ -311,23 +312,32 @@ async function runBrowserJs(
     // ignore
   }
 
-  const results = await userScripts.execute({
-    target: { tabId: tab.id },
-    world: "USER_SCRIPT",
-    worldId: "summarize-browserjs",
-    injectImmediately: true,
-    js: [{ code: wrapperCode }],
-    ...(executionId ? { executionId } : {}),
-  });
+  try {
+    return await withNativeInputArmedTab({
+      enabled: nativeInputEnabled,
+      tabId: tab.id,
+      sendMessage: (message) => chrome.runtime.sendMessage(message),
+      run: async () => {
+        const results = await userScripts.execute({
+          target: { tabId: tab.id },
+          world: "USER_SCRIPT",
+          worldId: "summarize-browserjs",
+          injectImmediately: true,
+          js: [{ code: wrapperCode }],
+          ...(executionId ? { executionId } : {}),
+        });
 
-  if (signal?.aborted) {
-    if (abortHandler) signal.removeEventListener("abort", abortHandler);
-    return { ok: false, error: "Execution aborted" };
+        if (signal?.aborted) {
+          return { ok: false, error: "Execution aborted" };
+        }
+
+        const result = results?.[0]?.result as BrowserJsResult | undefined;
+        return result ?? { ok: false, error: "No result from browserjs()" };
+      },
+    });
+  } finally {
+    if (abortHandler) signal?.removeEventListener("abort", abortHandler);
   }
-
-  const result = results?.[0]?.result as BrowserJsResult | undefined;
-  if (abortHandler) signal?.removeEventListener("abort", abortHandler);
-  return result ?? { ok: false, error: "No result from browserjs()" };
 }
 
 function buildSandboxHtml(): string {

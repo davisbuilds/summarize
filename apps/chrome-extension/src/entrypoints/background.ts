@@ -9,6 +9,10 @@ import {
   parseArtifact,
   upsertArtifact,
 } from "../automation/artifacts-store";
+import {
+  getNativeInputGuardError,
+  updateNativeInputArmedTabs,
+} from "../automation/native-input-guard";
 import { readAgentResponse } from "../lib/agent-response";
 import { buildChatPageContent } from "../lib/chat-context";
 import { buildDaemonRequestBody, buildSummarizeRequestBody } from "../lib/daemon-payload";
@@ -720,6 +724,10 @@ export default defineBackground(() => {
     number,
     { requestId: string; controller: AbortController }
   >();
+  // Tabs explicitly armed by the sidepanel for debugger-driven native input.
+  // Prevents arbitrary pages from triggering trusted clicks via the
+  // postMessage → content-script → runtime bridge.
+  const nativeInputArmedTabs = new Set<number>();
 
   const resolveLogLevel = (event: string) => {
     const normalized = event.toLowerCase();
@@ -2206,15 +2214,29 @@ export default defineBackground(() => {
       }
 
       const type = (raw as { type: string }).type;
+      if (type === "automation:native-input-arm") {
+        const msg = raw as { tabId?: number; enabled?: boolean };
+        updateNativeInputArmedTabs({
+          armedTabs: nativeInputArmedTabs,
+          senderHasTab: Boolean(sender.tab),
+          tabId: msg.tabId,
+          enabled: msg.enabled,
+        });
+        return;
+      }
       if (type === "automation:native-input") {
         const msg = raw as NativeInputRequest;
         void (async () => {
           const tabId = sender.tab?.id;
-          if (!tabId) {
+          const guardError = getNativeInputGuardError({
+            armedTabs: nativeInputArmedTabs,
+            senderTabId: tabId,
+          });
+          if (guardError) {
             try {
               sendResponse({
                 ok: false,
-                error: "Missing sender tab",
+                error: guardError,
               } satisfies NativeInputResponse);
             } catch {
               // ignore
@@ -2408,6 +2430,7 @@ export default defineBackground(() => {
     lastMediaProbeByTab.delete(tabId);
     hoverControllersByTabId.delete(tabId);
     panelCacheByTabId.delete(tabId);
+    nativeInputArmedTabs.delete(tabId);
   });
 
   // Chrome: Auto-open side panel on toolbar icon click
