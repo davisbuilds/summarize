@@ -266,7 +266,7 @@ describe("daemon/agent", () => {
 
     try {
       const assistant = await completeAgentResponse({
-        env: { HOME: home },
+        env: { HOME: home, PATH: process.env.PATH ?? "" },
         pageUrl: "https://example.com",
         pageTitle: null,
         pageContent: "Hello world",
@@ -284,6 +284,49 @@ describe("daemon/agent", () => {
       );
       expect(mockCompleteSimple).not.toHaveBeenCalled();
       expect(assistant.content).toBe("cli agent");
+    } finally {
+      autoSpy.mockRestore();
+    }
+  });
+
+  it("explains missing env and CLI availability when no auto agent model is usable", async () => {
+    const home = makeTempHome();
+    const autoSpy = vi.spyOn(modelAuto, "buildAutoModelAttempts").mockReturnValue([
+      {
+        transport: "native",
+        userModelId: "google/gemini-3-flash",
+        llmModelId: "google/gemini-3-flash",
+        openrouterProviders: null,
+        forceOpenRouter: false,
+        requiredEnv: "GEMINI_API_KEY",
+        debug: "google first",
+      },
+      {
+        transport: "cli",
+        userModelId: "cli/codex/gpt-5.2",
+        llmModelId: null,
+        openrouterProviders: null,
+        forceOpenRouter: false,
+        requiredEnv: "CLI_CODEX",
+        debug: "cli fallback",
+      },
+    ]);
+
+    try {
+      await expect(
+        completeAgentResponse({
+          env: { HOME: home, PATH: "" },
+          pageUrl: "https://example.com",
+          pageTitle: null,
+          pageContent: "Hello world",
+          messages: [{ role: "user", content: "Hi" }],
+          modelOverride: null,
+          tools: [],
+          automationEnabled: false,
+        }),
+      ).rejects.toThrow(
+        /No model available for agent\..*Checked: google\/gemini-3-flash, cli\/codex\/gpt-5\.2\..*Missing env: GEMINI_API_KEY\..*CLI unavailable: codex\..*Restart or reinstall the daemon/i,
+      );
     } finally {
       autoSpy.mockRestore();
     }

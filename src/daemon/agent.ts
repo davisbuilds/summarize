@@ -465,6 +465,60 @@ function resolveApiKeyForModel({
   throw new Error(`Missing API key for provider: ${provider}`);
 }
 
+function buildNoAgentModelAvailableError({
+  attempts,
+  envForAuto,
+  cliAvailability,
+}: {
+  attempts: Array<{
+    transport: "native" | "openrouter" | "cli";
+    userModelId: string;
+    requiredEnv: string;
+  }>;
+  envForAuto: Record<string, string | undefined>;
+  cliAvailability: {
+    claude?: boolean;
+    codex?: boolean;
+    gemini?: boolean;
+    agent?: boolean;
+  };
+}): Error {
+  const checked = attempts.map((attempt) => attempt.userModelId);
+  const missingEnv = Array.from(
+    new Set(
+      attempts
+        .filter((attempt) => attempt.transport !== "cli")
+        .map((attempt) => attempt.requiredEnv)
+        .filter((requiredEnv) => !envHasKey(envForAuto, requiredEnv as never)),
+    ),
+  );
+  const unavailableCli = Array.from(
+    new Set(
+      attempts
+        .filter((attempt) => attempt.transport === "cli")
+        .map((attempt) => {
+          if (attempt.requiredEnv === "CLI_CLAUDE") return "claude";
+          if (attempt.requiredEnv === "CLI_CODEX") return "codex";
+          if (attempt.requiredEnv === "CLI_GEMINI") return "gemini";
+          return "agent";
+        })
+        .filter((provider) => !cliAvailability[provider as keyof typeof cliAvailability]),
+    ),
+  );
+
+  const details = [
+    "No model available for agent.",
+    checked.length > 0 ? `Checked: ${checked.join(", ")}.` : null,
+    missingEnv.length > 0 ? `Missing env: ${missingEnv.join(", ")}.` : null,
+    unavailableCli.length > 0 ? `CLI unavailable: ${unavailableCli.join(", ")}.` : null,
+    "Restart or reinstall the daemon after changing API keys or CLI installs so its saved environment updates.",
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(" ");
+
+  return new Error(details);
+}
+
 async function resolveAgentModel({
   env,
   pageContent,
@@ -567,7 +621,7 @@ async function resolveAgentModel({
   }
 
   if (!isFallbackModel) {
-    throw new Error("No model available for agent");
+    throw buildNoAgentModelAvailableError({ attempts: [], envForAuto, cliAvailability });
   }
 
   const estimatedPromptTokens = Math.ceil(pageContent.length / 4);
@@ -603,6 +657,9 @@ async function resolveAgentModel({
 
   if (cliAttempt) {
     const parsed = parseCliUserModelId(cliAttempt.userModelId);
+    if (!cliAvailability[parsed.provider]) {
+      throw buildNoAgentModelAvailableError({ attempts, envForAuto, cliAvailability });
+    }
     return {
       provider: "cli",
       model: null,
@@ -616,7 +673,7 @@ async function resolveAgentModel({
     };
   }
 
-  throw new Error("No model available for agent");
+  throw buildNoAgentModelAvailableError({ attempts, envForAuto, cliAvailability });
 }
 
 export async function streamAgentResponse({
