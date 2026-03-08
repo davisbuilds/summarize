@@ -1,27 +1,28 @@
 import * as piAi from "@mariozechner/pi-ai";
-import type {
-  AutoRule,
-  AutoRuleKind,
-  CliAutoFallbackConfig,
-  CliProvider,
-  SummarizeConfig,
-} from "./config.js";
+import type { AutoRuleKind, CliProvider, SummarizeConfig } from "./config.js";
 import { normalizeGatewayStyleModelId, parseGatewayStyleModelId } from "./llm/model-id.js";
 import {
-  DEFAULT_AUTO_CLI_ORDER,
   DEFAULT_CLI_MODELS,
   envHasRequiredKey,
   isVideoUnderstandingCapableModelId,
   parseCliProviderName,
-  requiredEnvForCliProvider,
   resolveRequiredEnvForModelId,
   type RequiredModelEnv,
 } from "./llm/provider-capabilities.js";
+import {
+  prependCliCandidates,
+  resolveCliAutoFallbackConfig,
+  type ResolvedCliAutoFallbackConfig,
+} from "./model-auto-cli.js";
+import { resolveRuleCandidates } from "./model-auto-rules.js";
 import type { LiteLlmCatalog } from "./pricing/litellm.js";
 import {
   resolveLiteLlmMaxInputTokensForModelId,
   resolveLiteLlmPricingForModelId,
 } from "./pricing/litellm.js";
+
+export { resolveCliAutoFallbackConfig };
+export type { ResolvedCliAutoFallbackConfig };
 
 export type AutoSelectionInput = {
   kind: AutoRuleKind;
@@ -143,110 +144,6 @@ function normalizeSlugForMatch(slug: string): string {
   return slug.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
-const DEFAULT_RULES: AutoRule[] = [
-  {
-    when: ["video"],
-    candidates: ["google/gemini-3-flash", "google/gemini-2.5-flash-lite-preview-09-2025"],
-  },
-  {
-    when: ["image"],
-    candidates: ["google/gemini-3-flash", "openai/gpt-5-mini", "anthropic/claude-sonnet-4-5"],
-  },
-  {
-    when: ["website", "youtube", "text"],
-    bands: [
-      {
-        token: { max: 50_000 },
-        candidates: ["google/gemini-3-flash", "openai/gpt-5-mini", "anthropic/claude-sonnet-4-5"],
-      },
-      {
-        token: { max: 200_000 },
-        candidates: ["google/gemini-3-flash", "openai/gpt-5-mini", "anthropic/claude-sonnet-4-5"],
-      },
-      {
-        candidates: [
-          "xai/grok-4-fast-non-reasoning",
-          "google/gemini-3-flash",
-          "openai/gpt-5-mini",
-          "anthropic/claude-sonnet-4-5",
-        ],
-      },
-    ],
-  },
-  {
-    when: ["file"],
-    candidates: ["google/gemini-3-flash", "openai/gpt-5-mini", "anthropic/claude-sonnet-4-5"],
-  },
-  {
-    candidates: [
-      "google/gemini-3-flash",
-      "openai/gpt-5-mini",
-      "anthropic/claude-sonnet-4-5",
-      "xai/grok-4-fast-non-reasoning",
-    ],
-  },
-];
-
-export type ResolvedCliAutoFallbackConfig = {
-  enabled: boolean;
-  onlyWhenNoApiKeys: boolean;
-  order: CliProvider[];
-};
-
-function dedupeCliProviderOrder(order: CliProvider[]): CliProvider[] {
-  const out: CliProvider[] = [];
-  for (const provider of order) {
-    if (!out.includes(provider)) out.push(provider);
-  }
-  return out;
-}
-
-export function resolveCliAutoFallbackConfig(
-  config: SummarizeConfig | null,
-): ResolvedCliAutoFallbackConfig {
-  const raw = (config?.cli?.autoFallback ??
-    config?.cli?.magicAuto ??
-    null) as CliAutoFallbackConfig | null;
-  const order =
-    Array.isArray(raw?.order) && raw.order.length > 0 ? raw.order : DEFAULT_AUTO_CLI_ORDER;
-  return {
-    enabled: typeof raw?.enabled === "boolean" ? raw.enabled : true,
-    onlyWhenNoApiKeys: typeof raw?.onlyWhenNoApiKeys === "boolean" ? raw.onlyWhenNoApiKeys : true,
-    order: dedupeCliProviderOrder(order),
-  };
-}
-
-function hasAnyApiKeysConfigured(env: Record<string, string | undefined>): boolean {
-  const has = (value: string | undefined) => typeof value === "string" && value.trim().length > 0;
-  return Boolean(
-    has(env.OPENAI_API_KEY) ||
-    has(env.GEMINI_API_KEY) ||
-    has(env.GOOGLE_GENERATIVE_AI_API_KEY) ||
-    has(env.GOOGLE_API_KEY) ||
-    has(env.ANTHROPIC_API_KEY) ||
-    has(env.XAI_API_KEY) ||
-    has(env.OPENROUTER_API_KEY) ||
-    has(env.Z_AI_API_KEY) ||
-    has(env.ZAI_API_KEY),
-  );
-}
-
-function prioritizeCliProvider(
-  providers: CliProvider[],
-  preferred: CliProvider | null | undefined,
-): CliProvider[] {
-  if (!preferred) return providers;
-  const idx = providers.indexOf(preferred);
-  if (idx <= 0) return providers;
-  return [preferred, ...providers.slice(0, idx), ...providers.slice(idx + 1)];
-}
-
-function isCliProviderEnabled(provider: CliProvider, config: SummarizeConfig | null): boolean {
-  const cli = config?.cli;
-  if (!Array.isArray(cli?.enabled) || cli.enabled.length === 0) return false;
-  return cli.enabled.includes(provider);
-}
-
 function isCandidateOpenRouter(modelId: string): boolean {
   return modelId.trim().toLowerCase().startsWith("openrouter/");
 }
@@ -286,125 +183,6 @@ export function envHasKey(
   requiredEnv: AutoModelAttempt["requiredEnv"],
 ): boolean {
   return envHasRequiredKey(env, requiredEnv);
-}
-
-function tokenMatchesBand({
-  promptTokens,
-  band,
-}: {
-  promptTokens: number | null;
-  band: NonNullable<AutoRule["bands"]>[number];
-}): boolean {
-  const token = band.token;
-  if (!token) return true;
-  if (typeof promptTokens !== "number" || !Number.isFinite(promptTokens)) {
-    return typeof token.min !== "number" && typeof token.max !== "number";
-  }
-  const min = typeof token.min === "number" ? token.min : 0;
-  const max = typeof token.max === "number" ? token.max : Number.POSITIVE_INFINITY;
-  return promptTokens >= min && promptTokens <= max;
-}
-
-function resolveRuleCandidates({
-  kind,
-  promptTokens,
-  config,
-}: {
-  kind: AutoRuleKind;
-  promptTokens: number | null;
-  config: SummarizeConfig | null;
-}): string[] {
-  const rules = (() => {
-    const model = config?.model;
-    if (
-      model &&
-      "mode" in model &&
-      model.mode === "auto" &&
-      Array.isArray(model.rules) &&
-      model.rules.length > 0
-    ) {
-      return model.rules;
-    }
-    return DEFAULT_RULES;
-  })();
-
-  for (const rule of rules) {
-    const when = rule.when;
-    if (Array.isArray(when) && when.length > 0 && !when.includes(kind)) {
-      continue;
-    }
-
-    if (Array.isArray(rule.candidates) && rule.candidates.length > 0) {
-      return rule.candidates;
-    }
-
-    const bands = rule.bands;
-    if (Array.isArray(bands) && bands.length > 0) {
-      for (const band of bands) {
-        if (tokenMatchesBand({ promptTokens, band })) {
-          return band.candidates;
-        }
-      }
-    }
-  }
-
-  const fallback = rules[rules.length - 1];
-  return fallback?.candidates ?? [];
-}
-
-function prependCliCandidates({
-  candidates,
-  config,
-  env,
-  isImplicitAutoSelection,
-  allowAutoCliFallback,
-  lastSuccessfulCliProvider,
-}: {
-  candidates: string[];
-  config: SummarizeConfig | null;
-  env: Record<string, string | undefined>;
-  isImplicitAutoSelection: boolean;
-  allowAutoCliFallback: boolean;
-  lastSuccessfulCliProvider: CliProvider | null;
-}): string[] {
-  const cli = config?.cli;
-  const autoFallback = resolveCliAutoFallbackConfig(config);
-  const hasExplicitEnabledList = Array.isArray(cli?.enabled);
-  const enabledOrder: CliProvider[] = (() => {
-    if (hasExplicitEnabledList) return cli?.enabled ?? [];
-    const shouldUseAutoFallback =
-      autoFallback.enabled &&
-      (isImplicitAutoSelection || allowAutoCliFallback) &&
-      (!autoFallback.onlyWhenNoApiKeys || !hasAnyApiKeysConfigured(env));
-    if (!shouldUseAutoFallback) return [];
-    return autoFallback.order;
-  })();
-  if (enabledOrder.length === 0) return candidates;
-
-  const providerOrder = prioritizeCliProvider(enabledOrder, lastSuccessfulCliProvider);
-
-  const cliCandidates: string[] = [];
-  const add = (provider: CliProvider, modelOverride?: string) => {
-    if (hasExplicitEnabledList && !isCliProviderEnabled(provider, config)) return;
-    const model = modelOverride?.trim() || DEFAULT_CLI_MODELS[provider];
-    if (!model) return;
-    const id = `cli/${provider}/${model}`;
-    if (!cliCandidates.includes(id)) cliCandidates.push(id);
-  };
-
-  for (const provider of providerOrder) {
-    const modelOverride =
-      provider === "gemini"
-        ? cli?.gemini?.model
-        : provider === "codex"
-          ? cli?.codex?.model
-          : provider === "agent"
-            ? cli?.agent?.model
-            : cli?.claude?.model;
-    add(provider, modelOverride);
-  }
-  if (cliCandidates.length === 0) return candidates;
-  return [...cliCandidates, ...candidates];
 }
 
 function estimateCostUsd({
