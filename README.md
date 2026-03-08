@@ -1,9 +1,5 @@
 # Summarize 📝 — Chrome Side Panel + CLI
 
-![GitHub Repo Banner](https://ghrb.waren.build/banner?header=Summarize%F0%9F%93%9D&subheader=Chrome+Side+Panel+%2B+CLI&bg=f3f4f6&color=1f2937&support=true)
-
-<!-- Created with GitHub Repo Banner by Waren Gonzaga: https://ghrb.waren.build -->
-
 Fast summaries from URLs, files, and media. Works in the terminal, a Chrome Side Panel and Firefox Sidebar.
 
 **0.12.0 preview (unreleased):** this README reflects the upcoming release.
