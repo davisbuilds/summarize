@@ -15,7 +15,8 @@ import {
 import { generateToken } from "../../lib/token";
 import { createAppearanceControls } from "./appearance-controls";
 import { createSidepanelBgMessageRuntime } from "./bg-message-runtime";
-import { bindSettingsStorage, bindSidepanelLifecycle, bindSidepanelUiEvents } from "./bindings";
+import { bindSidepanelUiEvents } from "./bindings";
+import { bootstrapSidepanel } from "./bootstrap-runtime";
 import { runChatAgentLoop } from "./chat-agent-loop";
 import { ChatController } from "./chat-controller";
 import { createChatHistoryRuntime } from "./chat-history-runtime";
@@ -2008,69 +2009,84 @@ bindSidepanelUiEvents({
   runRefreshFree,
 });
 
-void (async () => {
-  await panelPortRuntime.ensure();
-  const loadedSettings = await loadSettings();
-  const s = pendingSettingsSnapshot
-    ? { ...loadedSettings, ...pendingSettingsSnapshot }
-    : loadedSettings;
-  pendingSettingsSnapshot = null;
-  settingsHydrated = true;
-  typographyController.setCurrentFontSize(s.fontSize);
-  typographyController.setCurrentLineHeight(s.lineHeight);
-  autoValue = s.autoSummarize;
-  chatEnabledValue = s.chatEnabled;
-  automationEnabledValue = s.automationEnabled;
-  slidesLayoutValue = s.slidesLayout;
-  slidesLayoutEl.value = slidesLayoutValue;
-  if (!automationEnabledValue) hideAutomationNotice();
-  appearanceControls.setAutoValue(autoValue);
-  applyChatEnabled();
-  applySlidesLayout();
-  appearanceControls.initializeFromSettings(s);
-  setDefaultModelPresets();
-  setModelValue(s.model);
-  setModelPlaceholderFromDiscovery({});
-  updateModelRowUI();
-  modelRefreshBtn.disabled = !s.token.trim();
-  drawerControls.toggleDrawer(false, { animate: false });
-  renderMarkdownDisplay();
-  void send({ type: "panel:ready" });
-  scheduleAutoKick();
-})();
-
-setInterval(() => {
-  void send({ type: "panel:ping" });
-}, 25_000);
-
-bindSettingsStorage({
-  applyChatEnabled,
-  hideAutomationNotice,
-  getSettingsHydrated: () => settingsHydrated,
-  setPendingSettingsSnapshot: (value) => {
-    pendingSettingsSnapshot = value;
-  },
+bootstrapSidepanel({
+  ensurePanelPort: () => panelPortRuntime.ensure(),
+  loadSettings,
   getPendingSettingsSnapshot: () => pendingSettingsSnapshot,
+  clearPendingSettingsSnapshot: () => {
+    pendingSettingsSnapshot = null;
+  },
+  setSettingsHydrated: (value) => {
+    settingsHydrated = value;
+  },
+  typographyController,
+  setAutoValue: (value) => {
+    autoValue = value;
+  },
   setChatEnabledValue: (value) => {
     chatEnabledValue = value;
   },
   setAutomationEnabledValue: (value) => {
     automationEnabledValue = value;
   },
-});
-
-bindSidepanelLifecycle({
+  setSlidesLayoutValue: (value) => {
+    slidesLayoutValue = value as SlidesLayout;
+  },
+  setSlidesLayoutInputValue: (value) => {
+    slidesLayoutEl.value = value;
+  },
+  hideAutomationNotice: () => {
+    hideAutomationNotice();
+  },
+  appearanceControls,
+  applyChatEnabled,
+  applySlidesLayout,
+  setDefaultModelPresets,
+  setModelValue,
+  setModelPlaceholderFromDiscovery,
+  updateModelRowUI,
+  setModelRefreshDisabled: (value) => {
+    modelRefreshBtn.disabled = value;
+  },
+  toggleDrawerClosed: () => {
+    drawerControls.toggleDrawer(false, { animate: false });
+  },
+  renderMarkdownDisplay,
   sendReady: () => {
     void send({ type: "panel:ready" });
   },
-  sendClosed: () => {
-    window.clearTimeout(autoKickTimer);
-    void send({ type: "panel:closed" });
-  },
   scheduleAutoKick,
-  syncWithActiveTab,
-  clearInlineError: () => {
-    errorController.clearInlineError();
+  sendPing: () => {
+    void send({ type: "panel:ping" });
   },
-  sendSummarize,
+  bindSettingsStorage: {
+    applyChatEnabled,
+    hideAutomationNotice,
+    getSettingsHydrated: () => settingsHydrated,
+    setPendingSettingsSnapshot: (value) => {
+      pendingSettingsSnapshot = value;
+    },
+    getPendingSettingsSnapshot: () => pendingSettingsSnapshot,
+    setChatEnabledValue: (value) => {
+      chatEnabledValue = value;
+    },
+    setAutomationEnabledValue: (value) => {
+      automationEnabledValue = value;
+    },
+  },
+  bindSidepanelLifecycle: {
+    sendReady: () => {
+      void send({ type: "panel:ready" });
+    },
+    sendClosed: () => {
+      window.clearTimeout(autoKickTimer);
+      void send({ type: "panel:closed" });
+    },
+    scheduleAutoKick,
+    syncWithActiveTab,
+    clearInlineError: () => {
+      errorController.clearInlineError();
+    },
+    sendSummarize,
+  },
 });
